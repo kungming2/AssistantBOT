@@ -133,7 +133,7 @@ Moderators *can* choose to **turn off the default flair enforcing** if they want
 
 #### Data
 
-All of the data that Artemis collects, except for an individual subreddit's traffic data, is publicly available through [Reddit's API](https://www.reddit.com/dev/api/) or through other data sources like r/pushshift. Posts and subscriber statistics are pulled once daily and traffic data is pulled every month. Unmodding u/AssistantBOT from a subreddit automatically terminates all statistics-gathering for the sub.
+All of the data that Artemis collects, except for an individual subreddit's traffic data, is publicly available through [Reddit's API](https://www.reddit.com/dev/api/) or through other data sources like r/pushshift. Posts and subscriber statistics are pulled once daily and traffic data is pulled every month. Unmodding u/AssistantBOT from a subreddit automatically terminates all statistics-gathering for the sub. You can find the source code for Artemis [here](https://github.com/kungming2/AssistantBOT).
 
 ###### About Me
 
