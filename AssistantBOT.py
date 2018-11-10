@@ -43,7 +43,7 @@ VERSION_NUMBER = "0.9.9 Beta"
 WAIT = 120  # Number of seconds Artemis waits in between runs.
 
 SOURCE_FOLDER = os.path.dirname(os.path.realpath(__file__))  # Fetch the absolute directory the script is in.
-FILE_ADDRESS_DATA = SOURCE_FOLDER + "/_data.db"
+FILE_ADDRESS_DATA = SOURCE_FOLDER + "/_data.db"  # The main database file.
 FILE_ADDRESS_ERROR = SOURCE_FOLDER + "/_error.md"
 FILE_ADDRESS_LOGS = SOURCE_FOLDER + "/_logs.md"
 FILE_ADDRESS_CREDENTIALS = SOURCE_FOLDER + "/_credentials.json"
