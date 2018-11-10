@@ -8,7 +8,10 @@ Looking for an easy-to-use bot to help make sure your community's submitters rem
 Artemis has two primary functions:
 
 1. **Enforcing post flairs on your subreddit**. Artemis will help make sure submitters choose an appropriate flair for their post.
-2. **Recording useful statistics for your subreddit**. Artemis will compile statistics on your community's posts as well as its subscriber and traffic growth and format it in a summary wikipage, updated daily.
+2. **Recording useful statistics for your subreddit**. Artemis will compile statistics on the following and format it in a summary wikipage, updated daily:
+    * Your community's posts and top submitters/commenters.
+    * Subscriber growth.
+    * Traffic growth.
 
 ### Flair Enforcing
 
@@ -24,7 +27,7 @@ Artemis will not act upon unflaired posts by subreddit moderators.
 
 ### Statistics
 
-**Artemis collects various useful statistics on your community** and updates them at midnight UTC to the subreddit wiki at `r/SUBREDDIT/wiki/assistantbot_statistics`. These statistics are by default visible only to moderators, but moderators can choose to make the wiki page public and share it with their community.
+**Artemis gathers various useful statistics on your community** and updates them at midnight UTC to the subreddit wiki at `r/SUBREDDIT/wiki/assistantbot_statistics`. These statistics are by default visible only to moderators, but moderators can choose to make the wiki page public and share it with their community.
 
 #### Post Statistics
 
@@ -92,7 +95,7 @@ It's not a complete replacement for the now-defunct [RedditMetrics](http://reddi
 
 Most moderators probably know that Reddit only keeps the last eleven months of traffic data on your subreddit `traffic` page plus the current month. This makes it difficult to keep track of how your subreddit has grown, over a period longer than a year, unless you store the data an external spreadsheet or something similar. 
 
-Artemis will keep track of these traffic entries for you and add them to its statistics page as a table with the monthly uniques and pageviews. It will *also* calculate the percentage change in uniques and pageviews from the previous month.
+Artemis will keep track of these traffic entries for you and add them to its statistics page as a table with the monthly uniques and pageviews. It will *also* calculate the percentage change in uniques and pageviews from the previous month, and also calculate the estimated traffic for the current month based on the traffic so far.
 
 ###### Example 
 
@@ -133,8 +136,13 @@ Moderators *can* choose to **turn off the default flair enforcing** if they want
 
 #### Data
 
-All of the data that Artemis collects, except for an individual subreddit's traffic data, is publicly available through [Reddit's API](https://www.reddit.com/dev/api/) or through other data sources like r/pushshift. Posts and subscriber statistics are pulled once daily and traffic data is pulled every month. Unmodding u/AssistantBOT from a subreddit automatically terminates all statistics-gathering for the sub. You can find the source code for Artemis [here](https://github.com/kungming2/AssistantBOT).
+All of the data that Artemis collects, except for an individual subreddit's traffic data, is publicly available through [Reddit's API](https://www.reddit.com/dev/api/) or through other data sources like [Pushshift](https://pushshift.io/). Posts and subscriber statistics are pulled once daily and traffic data is pulled every month. Unmodding u/AssistantBOT from a subreddit automatically terminates all statistics-gathering for the sub. You can find the source code for Artemis [here](https://github.com/kungming2/AssistantBOT).
 
 ###### About Me
 
 I'm the writer and maintainer of u/translator-BOT (Wenyuan and Ziwen) and u/LEGO_IDEAS_BOT. My bot Wenyuan has been keeping [detailed statistics](https://www.reddit.com/r/translator/wiki/overall_statistics) for r/translator for the last 2.5 years. I wanted to write a new statistics bot for some of the other communities that I moderate and decided to make it usable by other moderators as well. Please feel free to comment below if you have any questions about Artemis or its operations!
+
+##### Credits
+
+* u/Stuck_In_the_Matrix for his great work in operating and maintaining Pushshift.
+* u/CWinthrop for letting Artemis's beta run on r/alcohol.

@@ -29,6 +29,7 @@ import prawcore
 import time
 import datetime
 import calendar
+import pytz
 
 import traceback
 import logging
@@ -72,8 +73,10 @@ def load_credentials():
 
 def load_logger():
     """
-    Define the logger to use and its basic parameters for formatting.
-    :return:
+    Define the logger to use and its basic parameters for formatting. Also declares it as a global variable for other
+    functions to use.
+
+    :return: Nothing.
     """
 
     global logger
@@ -177,7 +180,7 @@ they want to see. Please [contact the mods of r/{1}]({4}) if you have any questi
 MSG_FLAIR_MOD_MSG = ("https://www.reddit.com/message/compose?to=%2Fr%2F{}&subject="
                      "About+My+Unflaired+Post&message=About+my+post+%5Bhere%5D%28{}%29...")
 MSG_FLAIR_REMOVAL = ("Your post has been removed but will be automatically restored if you select a flair for it within"
-                     " 24 hours. We apologize for the inconvenience.")
+                     " 24 hours. We apologize for the inconvenience.\n\n")
 MSG_FLAIR_APPROVAL = ("Thanks for selecting a flair for [your post]({})! It has been approved and is now fully visible "
                       "on  r/{}. Have a great day!")
 MSG_MOD_ENABLE = ("Flair enforcing is now **ENABLED** on r/{}. Artemis will send reminder messages to users "
@@ -221,7 +224,7 @@ cursor_data = conn_data.cursor()
 
 def date_convert_to_string(unix_integer):
     """
-    Converts a UNIX integer into a date formatted as YYYY-MM-DD.
+    Converts a UNIX integer into a date formatted as YYYY-MM-DD, according to the UTC equivalent (not local time).
 
     :param unix_integer: Any UNIX time number.
     :return: A string formatted with UTC time.
@@ -234,16 +237,18 @@ def date_convert_to_string(unix_integer):
 
 def date_convert_to_unix(date_string):
     """
-    Converts a date formatted as YYYY-MM-DD into a UNIX integer.
+    Converts a date formatted as YYYY-MM-DD into a Unix integer of its equivalent UTC time.
+    One can use `common_timezones` in the `pytz` module to get a list of commonly used time zones.
 
     :param date_string: Any date formatted as YYYY-MM-DD.
-    :return: The timestamp of MIDNIGHT that day UTC.
+    :return: The timestamp of MIDNIGHT that day in UTC.
     """
 
-    # Account for timezone differences.
-    time_difference = -8  # UTC offset
-    time_difference_sec = time_difference * 3600
+    # Account for timezone differences, by getting the UTC offset of the region in seconds.
+    current_zone = datetime.datetime.now(pytz.timezone('US/Pacific'))
+    time_difference_sec = int(current_zone.utcoffset().total_seconds())
 
+    # Get the Unix timestamp.
     local_unix_integer = int(time.mktime(time.strptime(date_string, '%Y-%m-%d')))
     utc_timestamp = local_unix_integer + time_difference_sec
 
@@ -258,6 +263,8 @@ def date_month_convert_to_string(unix_integer):
     :return: A month string formatted as YYYY-MM.
     """
     unix_integer = int(unix_integer)  # Just in case we are passed a string.
+
+    # Get just the year and the month of the Unix time in UTC.
     month_string = datetime.datetime.utcfromtimestamp(unix_integer).strftime("%Y-%m")
 
     return month_string
@@ -266,8 +273,10 @@ def date_month_convert_to_string(unix_integer):
 def date_next_midnight():
     """
     Function to determine seconds until midnight UTC. Returns how many seconds until then.
+    This function is used to tell moderators of a newly monitored subreddit how long it will be until
+    Artemis updates their statistics wikipage.
 
-    :return: Returns the number of seconds remaining until midnight UTC as an integer
+    :return: Returns the number of seconds remaining until midnight UTC as an integer.
     """
 
     # Define the time of the hour we want this to operate
@@ -283,15 +292,41 @@ def date_next_midnight():
     return time_difference
 
 
+def date_get_series_of_days(start_day, end_day):
+    """
+    A function that takes two date strings and returns a list of all days that are between those two days.
+    For example, if passed `2018-11-01` and `2018-11-03`, it will also give back a list like this: 
+    ['2018-11-01', '2018-11-02', '2018-11-03']. (The list includes the start and end dates.)
+
+    :param start_day: A YYYY-MM-DD string to start.
+    :param end_day: A  YYYY-MM-DD string to end.
+    :return: A list of days in the YYYY-MM-DD format.
+    """
+
+    days_list = []
+
+    # Convert our date strings into datetime objects.
+    start_day = datetime.datetime.strptime(start_day, "%Y-%m-%d")  # Convert to datetime object.
+    end_day = datetime.datetime.strptime(end_day, "%Y-%m-%d")  # Convert to datetime object.
+    delta = end_day - start_day  # Time difference between the two dates.
+
+    # Iterate and get steps of a day each and append to list.
+    for i in range(delta.days + 1):
+        days_list.append(str((start_day + datetime.timedelta(i)).strftime('%Y-%m-%d')))
+
+    return days_list
+
+
 """DATABASE FUNCTIONS"""
 
 
 def database_subreddit_insert(community_name):
     """
     Add a subreddit to the moderated list. This means Artemis will actively work on that community.
+    This function will also check to make sure it is not already in the database.
 
     :param community_name: Name of a subreddit (no r/).
-    :return:
+    :return: Nothing.
     """
     community_name = community_name.lower()
 
@@ -301,7 +336,7 @@ def database_subreddit_insert(community_name):
     results = cursor_data.fetchone()
 
     # Check the results.
-    if results is None:  # Subreddit was not previously in database.
+    if results is None:  # Subreddit was not previously in database. Let's insert it.
         cursor_data.execute("INSERT INTO monitored VALUES (?, ?)", (community_name, 1))  # 1 is True for flair enforcing
         conn_data.commit()
         logger.info("[Artemis] Sub Insert: Subreddit r/{} added to my monitored database.".format(community_name))
@@ -313,10 +348,10 @@ def database_subreddit_insert(community_name):
 
 def database_subreddit_delete(community_name):
     """
-    Remove a subreddit from the moderated list.  This means Artemis will NOT work on that community.
+    This function removes a subreddit from the moderated list.  This means Artemis will NOT work on that community.
 
     :param community_name: Name of a subreddit (no r/).
-    :return:
+    :return: Nothing.
     """
     community_name = community_name.lower()
 
@@ -336,8 +371,9 @@ def database_subreddit_delete(community_name):
 def database_monitored_subreddits_retrieve():
     """
     Function returns a list of all the subreddits that this bot monitors.
+    Note that names are returned WITHOUT the 'r/' prefix. So, 'translator', not 'r/translator'.
 
-    :return:
+    :return: A list of all monitored subreddits.
     """
     final_list = []
 
@@ -346,7 +382,7 @@ def database_monitored_subreddits_retrieve():
     cursor_data.execute(sql_command)
     results = cursor_data.fetchall()
 
-    # Collate the saved subreddits and add them into a list.
+    # Gather the saved subreddits and add them into a list.
     for item in results:
         community_name = item[0]
         final_list.append(community_name)
@@ -360,9 +396,11 @@ def database_monitored_subreddits_enforce_change(subreddit_name, to_enforce):
     """
     This simple function changes the `flair_enforce` status of a monitored subreddit.
     True (1): Artemis will send messages reminding people of the flairs available. (default)
-    False (0): Artemis will not send any messages about flairs. This effectively makes Artemis a statistics-only
-               assistant.
-    Note that this is completely separate from the "strict enforcing" function. That's covered under `True`.
+    False (0): Artemis will not send any messages about flairs.
+               This effectively makes Artemis a statistics-only assistant.
+
+    Note that this is completely separate from the "strict enforcing" function.
+    That's covered under `True`.
 
     :param subreddit_name: The subreddit to modify.
     :param to_enforce: A Boolean denoting which to set it to.
@@ -370,7 +408,7 @@ def database_monitored_subreddits_enforce_change(subreddit_name, to_enforce):
     """
     subreddit_name = subreddit_name.lower()
 
-    # Convert the Booleans to SQLite3 integers. 1 = True, 0 = False.
+    # Convert the booleans to SQLite3 integers. 1 = True, 0 = False.
     subreddit_digit = int(to_enforce)
 
     # Access the database.
@@ -395,8 +433,8 @@ def database_monitored_subreddits_enforce_status(subreddit_name):
     """
     A function that returns True or False depending on the subreddit's `flair_enforce` status.
 
-    :param subreddit_name:
-    :return: A Boolean. Default is True.
+    :param subreddit_name: Name of a subreddit (no r/).
+    :return: A boolean. Default is True.
     """
     subreddit_name = subreddit_name.lower()
 
@@ -421,7 +459,7 @@ def database_delete_filtered_post(post_id):
     been approved and restored.
 
     :param post_id: The Reddit submission's ID, as a string.
-    :return:
+    :return: Nothing.
     """
 
     # Delete it from our database.
@@ -437,7 +475,7 @@ def database_cleanup():
     """
     This function cleans up the `posts_processed` table and keeps only a certain amount left in order to prevent it
     from becoming too large. This keeps the newest X post IDs and deletes the oldest ones.
-
+    TODO test this individually on RPI
     :return:
     """
     items_to_keep = 1000  # How many entries in `posts_processed` we want to preserve.
@@ -458,7 +496,7 @@ def database_cleanup():
     f.close()
     lines_entries = events_logs.split('\n')
 
-    # If there are more lines, truncate it.
+    # If there are more lines than what we want to keep, truncate the entire file to our limit.
     if len(lines_entries) > lines_to_keep:
         lines_entries = lines_entries[(-1 * lines_to_keep):]
         lines_entries = "\n".join(lines_entries)
@@ -480,7 +518,9 @@ def subreddit_templates_retrieve(subreddit_name):
     Note that moderator-only post flairs ARE NOT included in the data that Reddit returns.
 
     :param subreddit_name: Name of a subreddit.
-    :return:
+    :return: A dictionary of the templates available on that subreddit, indexed by their flair text.
+             This dictionary will be empty if Artemis is unable to access the templates for some reason.
+             Those reasons may include all fliars being mod-only, no flairs at all, etc.
     """
 
     subreddit_templates = {}
@@ -491,9 +531,9 @@ def subreddit_templates_retrieve(subreddit_name):
     # Access the templates on the subreddit and assign their attributes to our dictionary.
     try:
         for template in r.flair.link_templates:
-            subreddit_templates[template['text']] = {}
+            subreddit_templates[template['text']] = {}  # Create an empty dictionary for this entry.
             subreddit_templates[template['text']]['id'] = template['id']
-            subreddit_templates[template['text']]['order'] = order
+            subreddit_templates[template['text']]['order'] = order  # This is the position of the flair in the selector.
             subreddit_templates[template['text']]['css_class'] = template['css_class']
             order += 1
     except prawcore.exceptions.Forbidden:
@@ -511,7 +551,7 @@ def subreddit_templates_collater(subreddit_name):
     `subreddit_templates_retrieve`.
 
     :param subreddit_name: The name of a Reddit subreddit.
-    :return: A Markdown bulleted list of templates.
+    :return: A Markdown-formatted bulleted list of templates.
     """
 
     formatted_order = {}
@@ -519,7 +559,7 @@ def subreddit_templates_collater(subreddit_name):
 
     template_dictionary = subreddit_templates_retrieve(subreddit_name)
 
-    # Iterate over our keys, indexing by the order.
+    # Iterate over our keys, indexing by the order in which they are displayed in the flair selector.
     for template in template_dictionary.keys():
         template_text = template
         template_order = template_dictionary[template]['order']
@@ -538,10 +578,10 @@ def subreddit_templates_collater(subreddit_name):
 
 def subreddit_traffic_daily_estimator(subreddit_name):
     """
-    Retrieves the daily traffic up to now and estimates the total traffic for this month.
+    Retrieves the DAILY traffic up to now in the current month and estimates the total traffic for this month.
 
     :param subreddit_name: The name of a Reddit subreddit.
-    :return:
+    :return: A dictionary indexed with various values, including averages and estimated totals.
     """
 
     daily_traffic_dictionary = {}
@@ -593,10 +633,11 @@ def subreddit_traffic_daily_estimator(subreddit_name):
 
 def subreddit_traffic_recorder(subreddit_name):
     """
-    Retrieve the monthly traffic statistics for a subreddit and store them in our database.
+    Retrieve the recorded monthly traffic statistics for a subreddit and store them in our database.
+    This function will also merge or retrieve it from the local cache if that data is already stored.
 
     :param subreddit_name: The name of a Reddit subreddit.
-    :return:
+    :return: A dictionary indexed by YYYY-MM with the traffic data for that month.
     """
 
     traffic_dictionary = {}
@@ -649,10 +690,14 @@ def subreddit_traffic_recorder(subreddit_name):
 
 def subreddit_traffic_retriever(subreddit_name):
     """
-    Function that looks at the traffic data for a subreddit and returns it as a Markdown table
+    Function that looks at the monthly traffic data for a subreddit and returns it as a Markdown table.
+    If available it will also incorporate the estimated monthly targets for the current month.
+    This function also calculates the month-to-month change and the averages for the entire period.
+
     :param subreddit_name: The name of a Reddit subreddit.
-    :return:
+    :return: A Markdown table with all the months we have data for.
     """
+
     formatted_lines = []
     subreddit_name = subreddit_name.lower()
     all_uniques = []
@@ -749,11 +794,12 @@ def subreddit_traffic_retriever(subreddit_name):
 def subreddit_subscribers_recorder(subreddit_name):
     """
     A quick routine that gets the number of subscribers for a specific subreddit and saves it to our database.
-    This is intended to be run daily.
+    This is intended to be run daily at midnight UTC.
 
     :param subreddit_name: The name of a Reddit subreddit.
-    :return:
+    :return: Nothing.
     """
+
     subreddit_name = subreddit_name.lower()
 
     # Get the date.
@@ -784,11 +830,12 @@ def subreddit_subscribers_recorder(subreddit_name):
 
 def subreddit_subscribers_retriever(subreddit_name):
     """
-    Function that looks at the subscriber data and returns it as a Markdown table.
+    Function that looks at the stored subscriber data and returns it as a Markdown table.
 
     :param subreddit_name: The name of a Reddit subreddit.
-    :return:
+    :return: A Markdown-formatted table with the daily change in subscribers and total number.
     """
+
     subscriber_dictionary = {}
     formatted_lines = []
     day_changes = []
@@ -853,10 +900,11 @@ def subreddit_statistics_recorder(subreddit_name, start_time, end_time, daily_mo
     This function takes posts from a given subreddit and tabulates how many belonged to each flair, and how many total.
 
     :param subreddit_name: Name of a subreddit.
-    :param start_time: Posts older than this UNIX time will be ignored.
-    :param end_time: Posts younger than this UNIX time will be ignored.
+    :param start_time: Posts older than this UNIX time UTC will be ignored.
+    :param end_time: Posts younger than this UNIX time UTC will be ignored.
     :param daily_mode: True if this is just to download the day's stats, False if we are initializing a subreddit.
-    :return:
+    :return: A dictionary indexed by flair text with the number of posts that belong to each flair.
+             This dictionary will be empty if there were no posts recorded during this period.
     """
 
     statistics_dictionary = {}
@@ -907,12 +955,14 @@ def subreddit_statistics_recorder(subreddit_name, start_time, end_time, daily_mo
 def subreddit_statistics_recorder_daily(subreddit, date_string):
     """
     This is a function that checks the database for `subreddit_statistics_recorder` data.
-    It merges it if it finds data already, otherwise it adds it as a new daily entry.
-
+    It merges it if it finds data already, otherwise it adds the day's statistics as a new daily entry.
+    This is intended to be run daily as well to get the PREVIOUS day's statistics.
+    TODO run this for LL
     :param  subreddit: The subreddit we're checking for.
     :param date_string: A date string in the model of YYYY-MM-DD.
     :return:
     """
+
     subreddit = subreddit.lower()
     day_start = date_convert_to_unix(date_string)  # Convert it from YYYY-MM-DD to Unix time.
     day_end = day_start + 86399
@@ -1003,7 +1053,7 @@ def subreddit_pushshift_oldest_retriever(subreddit_name):
     It also formats it as a bulleted Markdown list.
 
     :param subreddit_name: The community we are looking for.
-    :return:
+    :return: A Markdown text paragraph containing the oldest posts as links in a bulleted list.
     """
 
     num_to_get = 3  # How many of the oldest posts we want to get.
@@ -1040,7 +1090,7 @@ def subreddit_pushshift_time_top_retriever(subreddit_name, start_time, end_time)
     :param subreddit_name: The community we are looking for.
     :param start_time: We want to find posts *after* this time, expressed in Unix time.
     :param end_time: We want to find posts *before* this time, expressed in Unix time.
-    :return:
+    :return: A Markdown formatted section containing the top posts as entries in a bulleted list.
     """
 
     number_to_return = 5  # How many top posts we want.
@@ -1094,7 +1144,7 @@ def subreddit_pushshift_time_authors_retriever(subreddit_name, start_time, end_t
     :param start_time: We want to find posts *after* this time, expressed in Unix time.
     :param end_time: We want to find posts *before* this time, expressed in Unix time.
     :param search_type: `comment` or `submission`, depending on the type of top results one wants.
-    :return:
+    :return: A Markdown list with a header and bulleted list for each submitter/commenter.
     """
 
     # Convert YYYY-MM-DD to Unix time.
@@ -1148,7 +1198,7 @@ def subreddit_pushshift_activity_retriever(subreddit_name, start_time, end_time,
     :param start_time: We want to find posts *after* this time, expressed in Unix time.
     :param end_time: We want to find posts *before* this time, expressed in Unix time.
     :param search_type: `comment` or `submission`, depending on the type of top results one wants.
-    :return:
+    :return: A Markdown list with a header and bulleted list for each most active day.
     """
 
     # Convert YYYY-MM-DD UTC to Unix time.
@@ -1205,10 +1255,10 @@ def subreddit_pushshift_activity_retriever(subreddit_name, start_time, end_time,
 def subreddit_statistics_retriever(subreddit_name):
     """
     A function that gets ALL of the information on a subreddit's statistics and returns it as Markdown tables
-    sorted by month.
+    sorted by month. This also incorporates the data from the Pushshift functions above.
 
-    :param subreddit_name:
-    :return:
+    :param subreddit_name: Name of a subreddit.
+    :return: A Markdown section that collates all the existing information for a subreddit.
     """
 
     list_of_dates = []
@@ -1268,37 +1318,13 @@ def subreddit_statistics_retriever(subreddit_name):
     return total_data
 
 
-def get_series_of_days(start_day, end_day):
-    """
-    A function that takes two date strings and returns a list of all days that are between those two days.
-    For example, if passed `2018-11-01` and `2018-11-03`, it will also give back a list like this: 
-    ['2018-11-01', '2018-11-02', '2018-11-03'].
-
-    :param start_day: YYYY-MM-DD to start.
-    :param end_day: YYYY-MM-DD to end.
-    :return: A list of days in YYYY-MM-DD.
-    """
-
-    days_list = []
-
-    start_day = datetime.datetime.strptime(start_day, "%Y-%m-%d")  # Convert to datetime object.
-    end_day = datetime.datetime.strptime(end_day, "%Y-%m-%d")  # Convert to datetime object.
-    delta = end_day - start_day  # Time difference between the two.
-
-    # Iterate and get steps of a day each and append to list.
-    for i in range(delta.days + 1):
-        days_list.append(str((start_day + datetime.timedelta(i)).strftime('%Y-%m-%d')))
-
-    return days_list
-
-
 def subreddit_statistics_whole_month(subreddit_name):
     """
     This function is used when a subreddit is added to the moderation list for the first time.
-    We basically go through each day since the start of the month until the day before the present, and download stats
-    for each day.
+    We basically go through each day since the start of the CURRENT month until the day before the present, and
+    download stats for each day. This is so we can have an accurate count for the whole month.
 
-    :param subreddit_name:
+    :param subreddit_name: Name of a subreddit.
     :return: Nothing, but it will save to the database.
     """
 
@@ -1314,8 +1340,8 @@ def subreddit_statistics_whole_month(subreddit_name):
         # Then we do *not* want to get the data because it will be incomplete and we are at the start of the month.
         return
 
-    # Otherwise, we're good to go.
-    list_of_days_to_get = get_series_of_days(month_start, yesterday)
+    # Otherwise, we're good to go. We get data from the start of the month till yesterday. (Today is not over yet)
+    list_of_days_to_get = date_get_series_of_days(month_start, yesterday)
 
     # Iterate over the days and get the proper data.
     for day in list_of_days_to_get:
@@ -1331,9 +1357,12 @@ def subreddit_statistics_whole_month(subreddit_name):
 
 def wikipage_creator(subreddit_name):
     """
-    Checks if there is already a wikipage called `AssistantBOT_statistics`. If there isn't one, it creates it.
+    Checks if there is already a wikipage called `AssistantBOT_statistics`.
+    If there isn't one, it creates the page and sets its mod settings. It will also add a blank page template
+    with the amount of time estimated until the first update.
+
     :param subreddit_name: Name of a subreddit.
-    :return:
+    :return: Nothing.
     """
     page_name = "{}_statistics".format(USERNAME)  # The wikipage title to edit or create.
     r = reddit.subreddit(subreddit_name)
@@ -1362,8 +1391,9 @@ def wikipage_collater(subreddit_name):
     """
     This function collates all the information together and forms the Markdown text used to update the wikipage.
 
-    :param subreddit_name:
-    :return:
+    :param subreddit_name: Name of a subreddit.
+    :return: A full Markdown page that is the equivalent of the text in the `assistantbot_statistics` wikipage
+             for that subreddit.
     """
 
     # Get the current status of the bot's operations.
@@ -1397,10 +1427,10 @@ def wikipage_collater(subreddit_name):
 
 def wikipage_editor(subreddit_name):
     """
-    This function takes the body text from the above function and updates the wikipage.
+    This function takes the body text from the above function and updates the wikipage on the relevant subreddit.
 
     :param subreddit_name: Name of a subreddit.
-    :return:
+    :return: None.
     """
 
     date_today = date_convert_to_string(time.time())  # Convert to YYYY-MM-DD
@@ -1426,7 +1456,7 @@ def wikipage_status_collater(subreddit_name):
     settings of Artemis. This chunk is placed in the header of the edited wikipage.
 
     :param subreddit_name: The name of a monitored subreddit.
-    :return: A markdown chunk.
+    :return: A Markdown chunk that serves as the header.
     """
 
     subreddit_name = subreddit_name.lower()
@@ -1487,7 +1517,7 @@ def flair_notifier(post_object, message_to_send):
 
     :param post_object: The PRAW Submission object of the post that's missing a flair.
     :param message_to_send: The text of the body we want to send to the author.
-    :return:
+    :return: Nothing.
     """
 
     # Get some basic variables.
@@ -1508,11 +1538,11 @@ def flair_notifier(post_object, message_to_send):
 def flair_none_saver(post_object):
     """
     This function removes a post that lacks flair and saves it to the database to check later.
-    It saves the post ID as well as the time it was created. Another function will check them later to see if they
-    have been assigned a flair.
+    It saves the post ID as well as the time it was created. The `main_flair_checker` function will check
+    the post later to see if it has been assigned a flair, either by the OP or by a mod.
 
     :param post_object: The PRAW Submission object of the post that's missing a flair.
-    :return:
+    :return: Nothing.
     """
 
     # Get the unique Reddit ID of the post.
@@ -1536,7 +1566,7 @@ def flair_none_saver(post_object):
 def flair_is_user_mod(query_username, subreddit_name):
     """
     This function checks to see if a user is a moderator in the sub they posted in.
-    Artemis won't remove an unflaired post if it's by a moderator.
+    Artemis WILL NOT remove an unflaired post if it's by a moderator.
 
     :param query_username: The username of the person.
     :param subreddit_name: The subreddit in which they posted a comment.
@@ -1549,6 +1579,7 @@ def flair_is_user_mod(query_username, subreddit_name):
     for moderator in reddit.subreddit(subreddit_name).moderator():
         moderators_list.append(moderator.name.lower())
 
+    # Go through the list and check the users to see if they are moderators.
     if query_username.lower() in moderators_list:  # This user is a moderator.
         logger.debug("[Artemis] Is User Mod: u/{} is a mod of r/{}.".format(query_username, subreddit_name))
         return True
@@ -1562,13 +1593,13 @@ def flair_is_user_mod(query_username, subreddit_name):
 
 def main_error_log_(entry):
     """
-    A function to save errors to a log for later examination.
-    This one is more basic and does not include the last comments or submission text.
-    The advantage is that it can be shared between different routines, as it does not depend on PRAW.
+    A function to save detailed errors to a log for later examination. This is easier to check for issues than to
+    search through the entire events log, and is based off of a basic version of the function used in Wenyuan/Ziwen.
 
-    :param entry: The text we wish to include in the error log entry. Typically this is the traceback.
+    :param entry: The text we wish to include in the error log entry. Typically this is the traceback entry.
     :return: Nothing.
     """
+
     bot_version = "Artemis v{}".format(VERSION_NUMBER)
 
     # Open the file for the error log in appending mode.
@@ -1586,10 +1617,11 @@ def main_error_log_(entry):
 
 def main_backup_daily():
     """
-    This function backs up the database file to a secure Box account. It does not back up the credentials file.
+    This function backs up the database files to a secure Box account. It does not back up the credentials file or
+    the main Artemis file itself.
     This is called by the master timer during its daily routine.
 
-    :return:
+    :return: True if files were backed up, False otherwise.
     """
 
     current_day = date_convert_to_string(time.time())
@@ -1631,10 +1663,14 @@ def main_backup_daily():
 def main_multireddit_update():
     """
     A simple function that keeps a multireddit called `monitored` up-to-date and in sync with the actual list of
-    communities Artemis assists with.
+    communities Artemis assists with. If Artemis is added to a subreddit, it will also add that subreddit to the multi.
+    If Artemis is demodded, it will remove that subreddit from the multi.
+    The multi itself is not used by any functions but rather serves as an easy way to see all the new posts coming in
+    across the communities it monitors.
 
-    :return:
+    :return: Nothing.
     """
+
     online_list = []
 
     # Get the local list from the database of all our monitored subreddits.
@@ -1674,7 +1710,8 @@ def main_multireddit_update():
 
 def main_login():
     """
-    A simple function to log in to Reddit.
+    A simple function to log in and authenticate to Reddit.
+    This declares a global `reddit` object for all other functions to work with.
 
     :return: Nothing, but a global `reddit` variable is declared.
     """
@@ -1694,17 +1731,18 @@ def main_timer():
     This function helps time certain routines to be done only at specific times or days of the month.
 
     Daily at midnight: Retrieve number of subscribers.
-                       Record post statistics.
+                       Record post statistics and post them to the wikipages.
+                       Backup the data files to Box.
 
     5th day of every month: Retrieve subreddit traffic.
 
     :return:
     """
 
-    action_time = 0
-    month_action_day = 5
+    action_time = 0  # The hour we want these daily functions to run (midnight UTC in this case)
+    month_action_day = 5  # The day we want these monthly functions to run.
 
-    # Get the hour (24-hour) as a zero-padded digit.
+    # Get the time variables that we need.
     current = time.time()
     previous_date_string = date_convert_to_string(current-86400)
     current_date_string = date_convert_to_string(current)
@@ -1750,7 +1788,7 @@ def main_timer():
             main_backup_daily()
             
             # Clean up the `posts_processed` database table.
-            # database_cleanup()
+            # database_cleanup() TODO
 
         # If it's a certain day of the month, also get the traffic data.
         if int(current_date_only) == month_action_day:
@@ -1793,10 +1831,15 @@ def main_initialization(subreddit_name):
 def main_obtain_mod_permissions(subreddit_name):
     """
     A function to check if Artemis has mod permissions in a subreddit, and what kind of mod permissions it has.
+    The important ones Artemis needs are: `wiki`, so that it can edit the statistics wikipage.
+                                          `posts` (optional), so that it can remove unflaired posts.
+    Giving Artemis extra permissions does not matter as it will not use them.
+    More info: https://www.reddit.com/r/modhelp/wiki/mod_permissions
 
     :param subreddit_name: Name of a subreddit.
     :return: A tuple. First item is True/False on whether Artemis is a moderator. Second item is permissions, if any.
     """
+
     am_moderator = False
     my_permissions = None
     list_of_moderators = reddit.subreddit(subreddit_name).moderator()  # Get the list of moderators.
@@ -1821,7 +1864,7 @@ def main_messaging():
     `Enable` or `Disable` from a SUBREDDIT. A message from a moderator user account does *not* count.
     There is also a function that removes the SUBREDDIT from being monitored when de-modded.
 
-    :return:
+    :return: Nothing.
     """
 
     # Iterate over the inbox.
@@ -1937,9 +1980,12 @@ def main_flair_checker():
     This function checks the database of posts that have been filtered out for lacking a flair.
     It examines each one to see if they now have a flair, and if they do, it restores them to the subreddit by approving
     the post.
+    Note: While the function assumes that the person who chooses a flair is the OP, it will also restore the post
+    if a moderator is the one who picked a flair.
+
     This function will also clean the database of posts that are older than 24 hours.
 
-    :return:
+    :return: Nothing.
     """
 
     # Access the database.
@@ -2022,13 +2068,14 @@ def main_get_submissions():
     """
     This function checks all the monitored subreddits' submissions and checks for new posts.
     If a new post does not have a flair, it will send a message to the submitter asking them to select a flair.
-    If Artemis has `posts` mod permissions on a subreddit, it will *also* remove that post until the user
+    If Artemis also has `posts` mod permissions on a subreddit, it will *also* remove that post until the user
     selects a flair.
 
-    :return:
+    :return: Nothing.
     """
 
     posts = []
+    num_to_fetch = 25  # Number of posts to fetch each cycle.
 
     # First, get the list of all our monitored subreddits that want flair enforcing.
     monitored_list = database_monitored_subreddits_retrieve()
@@ -2040,7 +2087,7 @@ def main_get_submissions():
     logger.debug('[Artemis] Get: Retrieving submissions from "{}".'.format(monitored_string))
 
     # Access the posts.
-    posts += list(reddit.subreddit(monitored_string).new(limit=25))
+    posts += list(reddit.subreddit(monitored_string).new(limit=num_to_fetch))
     posts.reverse()  # Reverse it so that we start processing the older ones first. Newest ones last.
 
     # Iterate over the fetched posts. We have a number of built-in checks to reduce the amount of lifting.
