@@ -13,7 +13,7 @@ Artemis has two primary functions:
     * That data will be formatted in a summary wiki page that's updated daily midnight UTC.
     * The wiki page for a subreddit is at: https://www.reddit.com/r/SUBREDDIT/wiki/assistantbot_statistics
 
-Written and maintained by u/kungming2.
+Written and maintained by u/kungming2. For more information see: https://www.reddit.com/user/AssistantBOT
 """
 
 import os
@@ -40,8 +40,8 @@ from collections import OrderedDict
 
 """INTIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "0.9.9 Beta"
-WAIT = 120  # Number of seconds Artemis waits in between runs.
+VERSION_NUMBER = "1.0 Beta"
+WAIT = 60  # Number of seconds Artemis waits in between runs.
 
 SOURCE_FOLDER = os.path.dirname(os.path.realpath(__file__))  # Fetch the absolute directory the script is in.
 FILE_ADDRESS_DATA = SOURCE_FOLDER + "/_data.db"  # The main database file.
@@ -475,7 +475,8 @@ def database_cleanup():
     """
     This function cleans up the `posts_processed` table and keeps only a certain amount left in order to prevent it
     from becoming too large. This keeps the newest X post IDs and deletes the oldest ones.
-    TODO test this individually on RPI
+    This function also truncates the events log to keep it a manageable length.
+
     :return:
     """
     items_to_keep = 1000  # How many entries in `posts_processed` we want to preserve.
@@ -895,6 +896,31 @@ def subreddit_subscribers_retriever(subreddit_name):
     return body
 
 
+def subreddit_statistics_earliest_determiner(subreddit_name):
+    """
+    This function uses PRAW to fetch the Reddit limit of 1000 posts. Then it checks the dates of those posts and
+    returns the earliest day for which we have FULL data as a YYYY-MM-DD string.
+
+    :param subreddit_name: Name of a subreddit.
+    :return: YYYY-MM-DD string, earliest day for which we have full data.
+    """
+
+    dates = []
+
+    # Access the subreddit.
+    subreddit_name = subreddit_name.lower()
+    r = reddit.subreddit(subreddit_name)
+
+    for result in r.new(limit=1000):
+        dates.append(int(result.created_utc))
+
+    oldest_unix = min(dates)
+    oldest_full_day = oldest_unix + 86400
+    oldest_day_string = date_convert_to_string(oldest_full_day)
+
+    return oldest_day_string
+
+
 def subreddit_statistics_recorder(subreddit_name, start_time, end_time, daily_mode=False):
     """
     This function takes posts from a given subreddit and tabulates how many belonged to each flair, and how many total.
@@ -957,24 +983,31 @@ def subreddit_statistics_recorder_daily(subreddit, date_string):
     This is a function that checks the database for `subreddit_statistics_recorder` data.
     It merges it if it finds data already, otherwise it adds the day's statistics as a new daily entry.
     This is intended to be run daily as well to get the PREVIOUS day's statistics.
-    TODO run this for LL
-    :param  subreddit: The subreddit we're checking for.
+
+    :param subreddit: The subreddit we're checking for.
     :param date_string: A date string in the model of YYYY-MM-DD.
     :return:
     """
 
     subreddit = subreddit.lower()
+    current_time = int(time.time())
     day_start = date_convert_to_unix(date_string)  # Convert it from YYYY-MM-DD to Unix time.
     day_end = day_start + 86399
+    if (current_time - day_start) > 100000:  # If the time difference is earlier than a bit over a day...
+        daily_mode = False
+    else:
+        daily_mode = True
 
     cursor_data.execute("SELECT * FROM subreddit_statistics WHERE subreddit = ? and date = ?", (subreddit, date_string))
     results = cursor_data.fetchone()
 
     if results is None:
-        day_data = str(subreddit_statistics_recorder(subreddit, day_start, day_end, daily_mode=True))
+        day_data = str(subreddit_statistics_recorder(subreddit, day_start, day_end, daily_mode=daily_mode))
         cursor_data.execute("INSERT INTO subreddit_statistics VALUES (?, ?, ?)", (subreddit, date_string, day_data))
         conn_data.commit()
         logger.info('[Artemis] Stat Recorder Daily: Stored statistics for r/{} for {}.'.format(subreddit, date_string))
+        logger.info('[Artemis] Stat Recorder Daily: Stats for r/{} on {} are: {}'.format(subreddit, date_string,
+                                                                                         day_data))
     else:
         logger.info('[Artemis] Stat Recorder Daily: Statistics already stored for r/{} for {}.'.format(subreddit,
                                                                                                        date_string))
@@ -1318,11 +1351,12 @@ def subreddit_statistics_retriever(subreddit_name):
     return total_data
 
 
-def subreddit_statistics_whole_month(subreddit_name):
+def subreddit_statistics_retrieve_all(subreddit_name):
     """
     This function is used when a subreddit is added to the moderation list for the first time.
-    We basically go through each day since the start of the CURRENT month until the day before the present, and
-    download stats for each day. This is so we can have an accurate count for the whole month.
+    We basically go through each day for which we can find data from Reddit (subject to the 1000 item limit)
+    and store it day by day so that we have data to work with.
+    This function used to just fetch up from the first day of the month but it's now changed to go much further back.
 
     :param subreddit_name: Name of a subreddit.
     :return: Nothing, but it will save to the database.
@@ -1332,16 +1366,18 @@ def subreddit_statistics_whole_month(subreddit_name):
     subreddit_name = subreddit_name.lower()
     current_time = time.time()
     yesterday = date_convert_to_string(current_time-86400)
+    time_start = subreddit_statistics_earliest_determiner(subreddit_name)
+    '''
     current_month = str(datetime.datetime.utcfromtimestamp(current_time).strftime("%Y-%m"))
-    month_start = current_month + "-01"
+    # month_start = current_month + "-01"
 
     # Check to make sure that our starting point isn't in the previous month.
     if current_month not in yesterday:  # If the current YYYY-MM is not in the yesterday's date (say 2018-10-31)
         # Then we do *not* want to get the data because it will be incomplete and we are at the start of the month.
         return
-
+    '''
     # Otherwise, we're good to go. We get data from the start of the month till yesterday. (Today is not over yet)
-    list_of_days_to_get = date_get_series_of_days(month_start, yesterday)
+    list_of_days_to_get = date_get_series_of_days(time_start, yesterday)
 
     # Iterate over the days and get the proper data.
     for day in list_of_days_to_get:
@@ -1631,7 +1667,6 @@ def main_backup_daily():
         return False
     else:
         new_folder_path = "{}/{}".format(BACKUP_FOLDER, current_day)  # Make a new folder /YYYY-MM-DD.
-        print(new_folder_path)
         if os.path.isdir(new_folder_path):  # There already is a folder with today's date.
             logger.info("[Artemis] Main Backup: Backup folder for {} already exists.".format(current_day))
             return False
@@ -1776,6 +1811,7 @@ def main_timer():
         # Update the post statistics.
         wikipage_editor(community)
         cursor_data.execute("INSERT INTO subreddit_updated VALUES (?, ?)", (community, current_date_string))
+        conn_data.commit()
         logger.info("[Artemis] Main Timer: Updated statistics wikipage for r/{}.".format(community))
 
         # Update the multireddit.
@@ -1788,7 +1824,7 @@ def main_timer():
             main_backup_daily()
             
             # Clean up the `posts_processed` database table.
-            # database_cleanup() TODO
+            database_cleanup()
 
         # If it's a certain day of the month, also get the traffic data.
         if int(current_date_only) == month_action_day:
@@ -1803,16 +1839,16 @@ def main_timer():
 def main_initialization(subreddit_name):
     """
     This is a function that is called when a moderator invite is accepted for the first time.
-    It fetches the traffic data, the subscriber data, and also tries to get all the statistics for the current month
-    into the database.
-    It also
+    It fetches the traffic data, the subscriber data, and also tries to get all the statistics that it can
+    into the database. This process may take a while as Artemis will try to get the last 1000 posts allowed by the
+    API into its database.
 
     :param subreddit_name: Name of a subreddit.
     :return: Nothing.
     """
 
-    # Get post statistics for the current month, dating all the way back to the first of the month.
-    subreddit_statistics_whole_month(subreddit_name)
+    # Get post statistics for the subreddit, as far back as we can (about 1000 posts).
+    subreddit_statistics_retrieve_all(subreddit_name)
 
     # Get the traffic data that is stored.
     subreddit_traffic_recorder(subreddit_name)
@@ -1848,7 +1884,7 @@ def main_obtain_mod_permissions(subreddit_name):
     for moderator in list_of_moderators:
 
         if moderator == USERNAME:  # This is me!
-            am_moderator = True
+            am_moderator = True  # Turns out, I am a moderator.
             my_permissions = moderator.mod_permissions  # Get the permissions I have as a list. e.g. `['wiki']`
 
     mod_log = '[Artemis] Mod Permissions: Artemis r/{} moderator status is {}. Permissions are {}.'
@@ -1900,12 +1936,9 @@ def main_messaging():
             # Add the subreddit to our monitored list.
             database_subreddit_insert(new_subreddit)
 
-            # Fetch initialization data for this subreddit.
-            main_initialization(new_subreddit)
-
             # Reply to the subreddit confirming the invite.
             current_permissions = main_obtain_mod_permissions(str(msg_subreddit))
-            if current_permissions[0]:  # We are a moderator
+            if current_permissions[0]:  # We are a moderator.
                 # Fetch the list of moderator permissions we have. This will be an empty list if Artemis is a mod
                 # but has no actual permissions.
                 list_of_permissions = current_permissions[1]
@@ -1939,6 +1972,9 @@ def main_messaging():
             status_title = "Accepted mod invite to r/{}".format(str(msg_subreddit))
             subreddit_url = 'https://www.reddit.com/r/{}'.format(str(msg_subreddit))
             reddit.subreddit("u_AssistantBOT").submit(title=status_title, url=subreddit_url, send_replies=False)
+
+            # Fetch initialization data for this subreddit. This takes a while, so we do it after the reply to mods.
+            main_initialization(new_subreddit)
 
         else:  # Check for messages from subreddits Artemis monitors.
             monitored_list = database_monitored_subreddits_retrieve()  # Retrieve the currently monitored list.
@@ -1978,10 +2014,10 @@ def main_messaging():
 def main_flair_checker():
     """
     This function checks the database of posts that have been filtered out for lacking a flair.
-    It examines each one to see if they now have a flair, and if they do, it restores them to the subreddit by approving
-    the post.
-    Note: While the function assumes that the person who chooses a flair is the OP, it will also restore the post
-    if a moderator is the one who picked a flair.
+    It examines each one to see if they now have a flair, and if they do, it restores them to the
+    subreddit by approving the post.
+    Note: While the function assumes that the person who chooses a flair is the OP, it will also restore
+    the post if a moderator is the one who picked a flair.
 
     This function will also clean the database of posts that are older than 24 hours.
 
@@ -2075,7 +2111,7 @@ def main_get_submissions():
     """
 
     posts = []
-    num_to_fetch = 25  # Number of posts to fetch each cycle.
+    num_to_fetch = 25  # Number of posts to fetch during each cycle.
 
     # First, get the list of all our monitored subreddits that want flair enforcing.
     monitored_list = database_monitored_subreddits_retrieve()
@@ -2101,7 +2137,7 @@ def main_get_submissions():
             logger.debug('[Artemis] Get: Post {} already recorded in the processed database. Skipped.'.format(post_id))
             continue
 
-        # Check if the author exists second.
+        # Check if the author exists. If they don't, skip this post.
         try:
             post_author = post.author.name
         except AttributeError:
@@ -2109,13 +2145,14 @@ def main_get_submissions():
             logger.debug(('[Artemis] Get: Post {} author is deleted. Skipped.'.format(post_id)))
             continue
 
-        # Post age check, third.
+        # Checks for the age of this post.
         current_time = time.time()
         post_created_time = post.created_utc  # Unix time when this post was created.
-        time_difference = current_time - post_created_time  # How many second old this post is.
+        time_difference = current_time - post_created_time  # How many seconds old this post is.
         minimum_age = 300  # In seconds
         maximum_age = 21600  # In seconds
-        
+
+        # Perform the age check. It should be older than our minimum age and less than our maximum.
         if time_difference < minimum_age:
 
             # We give OPs `minimum_age` seconds to choose a flair. If it's a post that's younger than this, skip.
@@ -2155,7 +2192,7 @@ def main_get_submissions():
             else:
                 current_permissions = current_permissions[1]  # Collect the permissions as a list.
 
-            # Check to see if the author is a moderator.
+            # Check to see if the author is a moderator. Artemis will not remove unflaired posts by a moderator.
             if flair_is_user_mod(post_author, post_subreddit):
 
                 # If they are, don't do anything.
@@ -2163,13 +2200,15 @@ def main_get_submissions():
                                                                                                       post_subreddit))
                 continue
 
-            # Retrieve the available flairs as a Markdown list. This will be blank if there aren't actually flairs.
+            # Retrieve the available flairs as a Markdown list. This will be blank if there aren't actually any flairs.
             available_templates = subreddit_templates_collater(post_subreddit)
             logger.info("[Artemis] Get: Post on r/{} (https://redd.it/{}) is unflaired.".format(post_subreddit,
                                                                                                 post_id))
 
+            # Format the mod mail link for the OP to message in case they have questions.
+            moderator_mail_link = MSG_FLAIR_MOD_MSG.format(post_subreddit, post_permalink)
+
             # Remove the post if we have the permission to do so.
-            moderator_mail_link = MSG_FLAIR_MOD_MSG.format(post_subreddit, post_permalink)  # Format the mod mail link.
             if 'posts' in current_permissions:  # We are in strict enforcement mode.
 
                 # Write the object to the filtered database.
