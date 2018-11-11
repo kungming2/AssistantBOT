@@ -33,7 +33,9 @@ Artemis will not act upon unflaired posts by subreddit moderators.
 
 Artemis will provide you with information about the number of posts your subreddit receives and their flairs. That information is gathered and saved in a statistics page, organized by month for ease of viewing (newest first). It will also provide the total number of posts your subreddit receives per month. Note that the post flair that's saved is the flair *text* itself, not its CSS code.
 
-Artemis also incorporates data from u/Stuck_In_the_Matrix's Pushshift data  for statistics (check it out at r/Pushshift). This data is used to retrieve data on the most frequent submitters and commenters to your subreddit each month, as well as provide aggregate statistics on how many daily submissions and comments your community receives per month.
+Artemis also incorporates data from u/Stuck_In_the_Matrix's Pushshift data for statistics (check it out at r/Pushshift). This data is used to retrieve data on the most frequent submitters and commenters to your subreddit each month, as well as provide aggregate statistics on how many daily submissions and comments your community receives per month.
+
+Check out r/ChineseLanguage's **[live statistics page here](https://www.reddit.com/r/chineselanguage/wiki/assistantbot_statistics)** for an example.
 
 ###### Example for 2018-10
 
@@ -57,19 +59,19 @@ Artemis also incorporates data from u/Stuck_In_the_Matrix's Pushshift data  for 
 
 *Average comments per day*: **139.64** comments.
 
-| Post Flair | Number of Posts | Percentage |
-|------------|-----------------|------------|
-| Culture | 3 | 1.14% |
-| Discussion | 79 | 29.92% |
-| Grammar | 9 | 3.41% |
-| Historical | 2 | 0.76% |
-| Media | 15 | 5.68% |
-| None | 103 | 39.02% |
-| Resources | 15 | 5.68% |
-| Studying | 17 | 6.44% |
-| Translation | 5 | 1.89% |
-| Vocabulary | 16 | 6.06% |
-| **Total** | 264 | 100% |
+| Post Flair | Number of Submissions | Percentage |
+|------------|-----------------------|------------|
+| Culture | 6 | 1.32% |
+| Discussion | 128 | 28.07% |
+| Grammar | 14 | 3.07% |
+| Historical | 5 | 1.1% |
+| Media | 33 | 7.24% |
+| *None* | 170 | 37.28% |
+| Resources | 25 | 5.48% |
+| Studying | 37 | 8.11% |
+| Translation | 10 | 2.19% |
+| Vocabulary | 28 | 6.14% |
+| **Total** | 456 | 100% |
 
 ^(Example from r/ChineseLanguage)
 
@@ -93,24 +95,24 @@ It's not a complete replacement for the now-defunct [RedditMetrics](http://reddi
 
 #### Traffic Statistics
 
-Most moderators probably know that Reddit only keeps the last eleven months of traffic data on your subreddit `traffic` page plus the current month. This makes it difficult to keep track of how your subreddit has grown, over a period longer than a year, unless you store the data an external spreadsheet or something similar. 
+Most moderators probably know that Reddit only keeps the last *eleven months* of traffic data on your subreddit `traffic` page plus the current month. This makes it difficult to keep track of how your subreddit has grown, over a period longer than a year, unless you store the data an external spreadsheet or something similar. 
 
 Artemis will keep track of these traffic entries for you and add them to its statistics page as a table with the monthly uniques and pageviews. It will *also* calculate the percentage change in uniques and pageviews from the previous month, and also calculate the estimated traffic for the current month based on the traffic so far.
 
 ###### Example 
 
-* *Average Uniques*: 14828.91
-* *Average Pageviews*: 227819.82
-* *Average Monthly Uniques Change*: 51.43%
-* *Average Monthly Pageviews Change*: 50.47%
+* *Average Monthly Uniques*: 10950.6
+* *Average Monthly Pageviews*: 167930.6
+* *Average Monthly Uniques Change*: 67.09%
+* *Average Monthly Pageviews Change*: 99.09%
 
 | Month | Uniques | Uniques % Change | Pageviews | Pageviews % Change |
 |-------|---------|------------------|-----------|--------------------|
+| *2018-11 (est.)* | 91080 | *113.64%* | 1038690 | *55.28%* |
 | 2018-10 | 42632 | *78.17%* | 668894 | *41.39%* |
 | 2018-09 | 23928 | *-10.83%* | 473084 | *9.21%* |
 | 2018-08 | 26833 | *22.45%* | 433170 | *48.56%* |
 | 2018-07 | 21914 | *45.82%* | 291572 | *46.41%* |
-| 2018-06 | 15028 | *44.07%* | 199149 | *72.38%* |
 
 ^(Example from r/Choices)
 
@@ -144,5 +146,5 @@ I'm the writer and maintainer of u/translator-BOT (Wenyuan and Ziwen) and u/LEGO
 
 ##### Credits
 
-* u/Stuck_In_the_Matrix for his great work in operating and maintaining Pushshift.
+* u/Stuck_In_the_Matrix for his tireless work in operating and maintaining Pushshift.
 * u/CWinthrop for letting Artemis's beta run on r/alcohol.

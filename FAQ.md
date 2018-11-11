@@ -67,6 +67,10 @@ Artemis needs the `wiki` mod permission for a couple of reasons:
 1. So that it can create a new wiki page even if a subreddit has disabled its wiki.
 2. So that it can set the statistics wikipage to be only viewable by mods.
 
+#### How do I sort the tables by each column's header?
+
+Install RES (r/Enhancement) and your tables will be sortable by header.
+
 #### Why does the "average submissions per day" number seem so high? Especially when compared with my flair table?
 
 The average submissions/comments per day statistic is calculated from [Pushshift's](https://pushshift.io/) data and includes posts that have been removed as well. Your average submissions per day is thus likely to be higher if your subreddit is a frequent target of spammers. This number is an accurate count of *all* posts your community receives.

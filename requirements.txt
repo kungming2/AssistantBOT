@@ -1,0 +1,4 @@
+praw
+prawcore
+pytz
+requests
