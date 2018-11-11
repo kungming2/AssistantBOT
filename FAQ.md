@@ -4,6 +4,10 @@ This section contains examples of the messages and text that Artemis generates w
 
 #### Example Flair Enforcement Message
 
+This message is sent to users who do not select a flair for their post:
+
+---
+
 Hey there, u/USERNAME,
     
 Thanks for your submission to r/SUBREDDIT! This is a friendly reminder that the moderators of this community have asked for all posts in r/SUBREDDIT to have a *post flair* - in other words, a relevant tag or category. 
@@ -24,9 +28,13 @@ Post flairs help keep r/SUBREDDIT organized and allow our subscribers to easily 
 
 ---
 
-* The following line is also included if `strict` flair enforcement is on:
+The following line is also included if `strict` flair enforcement is on:
+
+---
 
 *Your post has been removed but will be automatically restored if you select a flair for it within 24 hours. We apologize for the inconvenience.*
+
+---
 
 #### Example Statistics Page
 
@@ -48,11 +56,11 @@ Subreddits that use their post flairs dynamically to indicate a post's status, l
 
 Artemis begins to update statistics wiki pages for its monitored subreddits (`r/SUBREDDIT/wiki/assistantbot_statistics`) at midnight UTC.
 
-#### How long does it take the removal of posts for flair enforcement to work? 
+#### How long does Artemis wait before sending a flair enforcement message?
 
-It should be under a minute in most cases.
+Artemis acts on posts that are at least five minutes old, to give OPs a chance to select a flair after they submitted. If the post is over five minutes old and still has no flair, Artemis will send the message.
 
-#### Our subreddit wiki is public - why does Artemis need the `wiki` permission? Can't it run with no mod permissions?
+#### Our subreddit wiki is public - why does Artemis need the `wiki` permission? Can't it run with *no* mod permissions?
 
 Artemis needs the `wiki` mod permission for a couple of reasons:
 
@@ -80,6 +88,10 @@ I'm u/kungming2, and I also wrote and maintain [Wenyuan and Ziwen](https://www.r
 #### Why is this bot called Artemis?
 
 Honestly, it's just because I like the name. But perhaps one can think of this bot as [hunting](https://en.wikipedia.org/wiki/Artemis) down both unflaired posts and statistics.
+
+#### Why did you make this bot?
+
+I mod several communities that use post flairs, and it was frustrating to see no effective way to enforce post flairs given that most flair enforcement bots are no longer in use. Furthermore, I wanted to make publicly available some of the statistics-calculating functions I use for Wenyuan and Ziwen for other  moderators to use.  
 
 #### I have a feature suggestion for Artemis.
 
