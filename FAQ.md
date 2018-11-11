@@ -1,5 +1,7 @@
 ## Examples
 
+This section contains examples of the messages and text that Artemis generates when assisting moderators.
+
 #### Example Flair Enforcement Message
 
 Hey there, u/USERNAME,
@@ -28,30 +30,40 @@ Post flairs help keep r/SUBREDDIT organized and allow our subscribers to easily 
 
 #### Example Statistics Page
 
-Check out r/ChineseLanguage's **[live statistics page here](https://www.reddit.com/r/chineselanguage/wiki/assistantbot_statistics)**.
+Check out r/ChineseLanguage's **[live statistics page here](https://www.reddit.com/r/chineselanguage/wiki/assistantbot_statistics)** for an example.
 
 ## FAQ
-
-#### What kind of subreddits benefit from using Artemis?
-
-The subreddits that benefit most from Artemis are those that have a comprehensive post flair system. Subreddits with no post flairs will obviously not benefit from flair enforcing.
-
-Subreddits that use their post flairs dynamically, like r/translator or r/excel, will likely benefit less from Artemis since an individual post's flair is automatically assigned and constantly changing.
-
-#### When does Artemis update the statistics wiki pages?
-
-Artemis begins to update statistics wiki pages for its monitored subreddits (`r/SUBREDDIT/wiki/assistantbot_statistics`) at midnight UTC.
 
 #### Who can use Artemis?
 
 Any subreddit can! Just invite u/AssistantBOT as a moderator with at least the `wiki` permission.
 
+#### What kind of subreddits benefit from using Artemis?
+
+**The subreddits that benefit most from Artemis are those that have a post flair system.** Subreddits with no post flairs will obviously not benefit from flair enforcing.
+
+Subreddits that use their post flairs dynamically to indicate a post's status, like r/translator or r/excel, will likely benefit less from Artemis since an individual post's flair is automatically assigned and constantly changing.
+
+#### When does Artemis update the statistics wiki pages?
+
+Artemis begins to update statistics wiki pages for its monitored subreddits (`r/SUBREDDIT/wiki/assistantbot_statistics`) at midnight UTC.
+
+#### How long does it take the removal of posts for flair enforcement to work? 
+
+It should be under a minute in most cases.
+
 #### Our subreddit wiki is public - why does Artemis need the `wiki` permission? Can't it run with no mod permissions?
 
 Artemis needs the `wiki` mod permission for a couple of reasons:
 
-1. So that it can create a new wiki page if a subreddit has disabled its wiki.
+1. So that it can create a new wiki page even if a subreddit has disabled its wiki.
 2. So that it can set the statistics wikipage to be only viewable by mods.
+
+#### Why does the "average submissions per day" number seem so high? Especially when compared with my flair table?
+
+The average submissions/comments per day statistic is calculated from [Pushshift's](https://pushshift.io/) data and includes posts that have been removed as well. Your average submissions per day is thus likely to be higher if your subreddit is a frequent target of spammers. This number is an accurate count of *all* posts your community receives.
+
+The flair table only records posts that were *not* removed and is the more accurate count of posts your community actually sees.
 
 #### How do I disable Artemis?
 
@@ -59,11 +71,11 @@ Just remove it as a moderator from your subreddit.
 
 #### Why can't statistics gathering be turned off?
 
-Gathering statistics helps moderators understand the activity and health of their community. All of the data for statistics (with the exception of traffic) is publicly obtainable, and it is our firm belief that all moderators can benefit from being able to view the statistics that Artemis provides.
+Gathering statistics helps moderators understand the activity and health of their community. All of the data for statistics (with the exception of traffic) is publicly obtainable, and it is my firm belief that all moderators can benefit from being able to view the statistics that Artemis provides.
 
 #### Who made Artemis?
 
-I'm u/kungming2, and I also wrote and maintain Wenyuan and Ziwen (u/translator-BOT) and u/LEGO_IDEAS_BOT, among others.
+I'm u/kungming2, and I also wrote and maintain [Wenyuan and Ziwen](https://www.reddit.com/r/translatorbot/) (u/translator-BOT) and u/LEGO_IDEAS_BOT, among others.
 
 #### Why is this bot called Artemis?
 
@@ -73,6 +85,13 @@ Honestly, it's just because I like the name. But perhaps one can think of this b
 
 Feel free to shoot me a message at u/kungming2.
 
-#### Where can I find the source code?
+## Technical Details
+
+#### Source Code
 
 You can find Artemis's source code at [this repo on Github](https://github.com/kungming2/AssistantBOT).
+
+#### Other
+
+* Artemis is hosted on a Raspberry Pi 3 that also runs u/translator-BOT and u/LEGO_IDEAS_BOT.
+* Artemis is written in Python 3, and with the exception of [PRAW](https://praw.readthedocs.io/en/latest/index.html), only uses built-in Python modules.
