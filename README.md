@@ -1,150 +1,68 @@
-## Introducing Artemis (u/AssistantBOT), a flair enforcer and statistics bot for YOUR subreddit!
+## Introducing Artemis (u/AssistantBOT), a flair enforcer and statistics bot for any subreddit!
 
-Looking for an easy-to-use bot to help make sure your community's submitters remember to choose a post flair? Want more detailed and extensive statistics on your community? **Artemis (u/AssistantBOT)** is an easy-to-use and helpful bot intended to help moderators with organizing and gaining insights into their own community. It is written by a moderator *for* moderators.
+* Looking for an easy-to-use bot to help make sure your community's submitters remember to choose a post flair? 
+* Want more detailed and extensive statistics on the health and growth of your community? 
 
+**Artemis (u/AssistantBOT)** is an easy-to-use and helpful Reddit bot written by a moderator *for* moderators to assist them with organizing and gaining insights into their own communities. (Now used on 500+ subreddits with over 27 million subscribers combined!)
 
-## Functions
+## Functions (TL;DR)
 
 Artemis has two primary functions:
 
-1. **Enforcing post flairs on your subreddit**. Artemis will help make sure submitters choose an appropriate flair for their post.
-2. **Recording useful statistics for your subreddit**. Artemis will compile statistics on the following and format it in a summary wikipage, updated daily:
-    * Your community's posts and top submitters/commenters.
-    * Subscriber growth.
-    * Traffic growth.
+1. **Recording useful statistics for your subreddit**. Artemis will compile statistics on the following and format it in a summary wikipage that's updated daily (see the sidebar on New Reddit or mobile of this subreddit for examples). This wikipage includes:
+    * A monthly statistics breakdown of your community's posts and its activity (most active days, top submitters/commenters, top-voted posts).
+    * Daily subscriber growth, both future and historical, as well as past and future subscriber milestones. (replacement and complement for [RedditMetrics](http://redditmetrics.com/)).
+    * Traffic data, including the average uniques and pageviews for your community and its estimated traffic for the current month.
+    * A breakdown of the userflairs of your community and how many people have each userflair (optional). 
+2. **Enforcing post flairs on your subreddit**. Artemis will help make sure submitters choose an appropriate flair for their post. (flair enforcing can be turned off, if desired)
 
-### Flair Enforcing
-
-Many subreddit mods have put time and effort into creating post flairs that not only add visual variety to their community but also help organize their communities' submissions. Being able to see all the posts with the "Art" post flair, for example, can be extremely convenient for people. **Unfortunately, submitters often forget to choose a post flair before or after they submit their post.** Selecting a post flair can be made mandatory on [the redesign](https://www.reddit.com/r/redesign/), but that rule doesn't affect mobile or classic Reddit users.
-
-**Artemis helps enforce flair selection** by doing the following:
-
-* `(default mode)` **Send a reminder message with a list of the subreddit's post flairs** to the submitter if they have not selected a flair within five minutes of submission. 
-* `(optional strict mode)` The above, **and remove the unflaired submission until the submitter selects a flair**. Artemis will automatically restore their post once they've selected a flair.
-    * If the optional strict mode is enabled, Artemis will continue checking the post for flair updates for up to 24 hours. The post is considered completely abandoned if its submitter has not assigned it a flair within a day.
-
-Artemis will not act upon unflaired posts by subreddit moderators.
-
-### Statistics
-
-**Artemis gathers various useful statistics on your community** and updates them at midnight UTC to the subreddit wiki at `r/SUBREDDIT/wiki/assistantbot_statistics`. These statistics are by default visible only to moderators, but moderators can choose to make the wiki page public and share it with their community.
-
-#### Post Statistics
-
-Artemis will provide you with information about the number of posts your subreddit receives and their flairs. That information is gathered and saved in a statistics page, organized by month for ease of viewing (newest first). It will also provide the total number of posts your subreddit receives per month. Note that the post flair that's saved is the flair *text* itself, not its CSS code.
-
-Artemis also incorporates data from u/Stuck_In_the_Matrix's Pushshift data for statistics (check it out at r/Pushshift). This data is used to retrieve data on the most frequent submitters and commenters to your subreddit each month, as well as provide aggregate statistics on how many daily submissions and comments your community receives per month.
-
-Check out r/ChineseLanguage's **[live statistics page here](https://www.reddit.com/r/chineselanguage/wiki/assistantbot_statistics)** for an example.
-
-###### Example for 2018-10
-
-###### Submissions Activity
-
-**Most Active Days**
-
-* **27** submissions on **2018-10-04**
-* **26** submissions on **2018-10-08**
-* **24** submissions on **2018-10-23**
-
-*Average submissions per day*: **18.44** submissions.
-
-###### Comments Activity
-
-**Most Active Days**
-
-* **189** comments on **2018-10-04**
-* **186** comments on **2018-10-10**
-* **182** comments on **2018-10-14**
-
-*Average comments per day*: **139.64** comments.
-
-| Post Flair | Number of Submissions | Percentage |
-|------------|-----------------------|------------|
-| Culture | 6 | 1.32% |
-| Discussion | 128 | 28.07% |
-| Grammar | 14 | 3.07% |
-| Historical | 5 | 1.1% |
-| Media | 33 | 7.24% |
-| *None* | 170 | 37.28% |
-| Resources | 25 | 5.48% |
-| Studying | 37 | 8.11% |
-| Translation | 10 | 2.19% |
-| Vocabulary | 28 | 6.14% |
-| **Total** | 456 | 100% |
-
-^(Example from r/ChineseLanguage)
-
-#### Subscriber Statistics
-
-Want to keep track of how your community has grown? Artemis will record the *net number of new subscribers* your subreddit receives every day. Reddit's traffic tables only records the raw number of *new* subscribers; their bar graph accounts for unsubscribers. Artemis will also calculate the net average daily subscriptions.
-
-It's not a complete replacement for the now-defunct [RedditMetrics](http://redditmetrics.com) in that Artemis doesn't have generated charts, but it should give you an idea of how your community has grown (or heaven forbid, shrunk) over time.
-
-###### Example 
-
-* *Average Daily Change*: +9.5 subscribers
-
-| Date | Subscribers | Change |
-|------|-------------|--------|
-| 2018-11-06 | 2606 | +19 |
-| 2018-11-05 | 2587 | +14 |
-| 2018-11-04 | 2573 | +4 |
-| 2018-11-03 | 2569 | +15 |
-| 2018-11-02 | 2554 | --- |
-
-#### Traffic Statistics
-
-Most moderators probably know that Reddit only keeps the last *eleven months* of traffic data on your subreddit `traffic` page plus the current month. This makes it difficult to keep track of how your subreddit has grown, over a period longer than a year, unless you store the data an external spreadsheet or something similar. 
-
-Artemis will keep track of these traffic entries for you and add them to its statistics page as a table with the monthly uniques and pageviews. It will *also* calculate the percentage change in uniques and pageviews from the previous month, and also calculate the estimated traffic for the current month based on the traffic so far.
-
-###### Example 
-
-* *Average Monthly Uniques*: 10950.6
-* *Average Monthly Pageviews*: 167930.6
-* *Average Monthly Uniques Change*: 67.09%
-* *Average Monthly Pageviews Change*: 99.09%
-
-| Month | Uniques | Uniques % Change | Pageviews | Pageviews % Change |
-|-------|---------|------------------|-----------|--------------------|
-| *2018-11 (est.)* | 91080 | *113.64%* | 1038690 | *55.28%* |
-| 2018-10 | 42632 | *78.17%* | 668894 | *41.39%* |
-| 2018-09 | 23928 | *-10.83%* | 473084 | *9.21%* |
-| 2018-08 | 26833 | *22.45%* | 433170 | *48.56%* |
-| 2018-07 | 21914 | *45.82%* | 291572 | *46.41%* |
-
-^(Example from r/Choices)
+**For more detailed information, please see the [FAQ](https://www.reddit.com/user/AssistantBOT/comments/9vd2ob/artemis_example_messages_statistics_and_faq/)**.
 
 ## I want u/AssistantBOT to assist my subreddit!
 
-**Simply add u/AssistantBOT as a moderator to your subreddit.** It is that easy, and Artemis does not require more than [one or two permissions](https://www.reddit.com/r/modhelp/wiki/mod_permissions#wiki_moderator_permissions). Note:
+Awesome! It's super easy to add u/AssistantBOT as a moderator to your subreddit:
 
-* `(default mode)` If you just want Artemis to provide statistics information and *remind* OPs but **not** remove unflaired posts, invite it with `wiki` permissions. 
-* `(optional strict mode)` If you'd like Artemis to proactively **remove posts that do not have a flair until their author selects one**, invite it with the `wiki` *and* the  `posts` permissions. 
+1. Use the guide below to determine what kind of mode suits your subreddit best.
+2. Invite u/AssistantBOT from your subreddit's moderators page at `https://www.reddit.com/r/SUBREDDIT/about/moderators` with the most suitable moderator permissions.
+3. The bot will accept your invite and reply with a confirmation message. 
 
-Artemis will get to work once it accepts your moderator invite and will generate the first statistics page at midnight UTC. 
+Note: Artemis will enforce post flairs for subreddits of any size, but will pause statistics-gathering if a subreddit is below 25 subscribers and resume statistics-gathering when it has reached that threshold.
 
+### Flair Enforcing Modes
 
-#### Settings
+Artemis's flair enforcing modes are determined by the [moderator permissions](https://www.reddit.com/r/modhelp/wiki/mod_permissions) it has: 
 
-Artemis is explicitly designed to be easy-to-use and consequently doesn't really have "settings" apart from the moderator permissions noted above.
+* `Default` mode
+    * If you just want Artemis to provide statistics information and *remind* OPs but **not** remove unflaired posts, invite it with the `wiki` permission. 
+* `Strict` mode (optional)
+    * If you'd like Artemis to proactively **remove posts that do not have a flair until their author selects one**, invite it with the `wiki` *and* the  `posts` permissions. 
+* `+` enhancement (optional, but recommended)
+    * If you would like submitters to be able to simply select a flair with a reply to Artemis's flair enforcement messages, also invite Artemis with the `flair` permission. 
+    * This enhancement is recommended as it allows users across all platforms to easily select flairs.
 
-Moderators *can* choose to **turn off the default flair enforcing** if they want, retaining only Artemis's statistics-gathering function.
+Artemis will start enforcing post flairs once it accepts your moderator invite and will generate the first statistics page after midnight UTC. 
 
-* To *disable flair enforcing*, moderators can send u/AssistantBOT a *modmail message* [from their subreddit](https://mod.reddit.com/mail/create) with `Disable` in the subject. Flair enforcing can be turned on again by sending another message with `Enable` in the subject.
-* To *disable Artemis completely* on your subreddit, simply remove it as a moderator. Artemis will stop flair enforcing and gathering/updating statistics for the community once it's removed.
-* Note: Statistics recording cannot be turned off.
+Here's a table with a detailed breakdown of what the different flair enforcement modes are:
 
-#### Data
+| Moderator Permissions | Flair Enforcement Actions | Mode Name |
+|-----------------------|-------------------|-----------|
+| `wiki` | Flair reminder messages are sent to submitters who submit an unflaired post. | `Default` |
+| `wiki`, `flair` | Flair reminder messages are sent to submitters who submit an unflaired post. Submitters can select a flair by responding to the messages with a flair text. | `Default+` |
+| `wiki`, `posts` | Flair reminder messages are sent to submitters who submit an unflaired post. Unflaired posts are removed until submitters select a flair. | `Strict` |
+| `wiki`, `posts`, `flair` / `all` | Flair reminder messages are sent to submitters who submit an unflaired post. Unflaired posts are removed until submitters select a flair. Submitters can select a flair by responding to the messages with a flair text. | `Strict+` |
 
-All of the data that Artemis collects, except for an individual subreddit's traffic data, is publicly available through [Reddit's API](https://www.reddit.com/dev/api/) or through other data sources like [Pushshift](https://pushshift.io/). Posts and subscriber statistics are pulled once daily and traffic data is pulled every month. Unmodding u/AssistantBOT from a subreddit automatically terminates all statistics-gathering for the sub. You can find the source code for Artemis [here](https://github.com/kungming2/AssistantBOT).
+## Settings
 
-###### About Me
+Artemis is explicitly designed to be easy-to-use and consequently by default doesn't have "settings" apart from the moderator permissions noted in the table above. **Moderators can choose to turn off flair enforcing** if they want, retaining only Artemis's statistics-gathering function.
 
-I'm the writer and maintainer of u/translator-BOT (Wenyuan and Ziwen) and u/LEGO_IDEAS_BOT. My bot Wenyuan has been keeping [detailed statistics](https://www.reddit.com/r/translator/wiki/overall_statistics) for r/translator for the last 2.5 years. I wanted to write a new statistics bot for some of the other communities that I moderate and decided to make it usable by other moderators as well. Please feel free to comment below if you have any questions about Artemis or its operations!
+If you are comfortable with code and want to change some finer aspects of flair enforcing, please [see this page](https://www.reddit.com/r/AssistantBOT/wiki/advanced) for information on the optional advanced configuration.
 
-##### Credits
+## Data
 
-* u/Stuck_In_the_Matrix for his tireless work in operating and maintaining Pushshift.
-* u/CWinthrop for letting Artemis's beta run on r/alcohol.
+All of the data that Artemis collects, except for an individual subreddit's traffic data, is publicly available through [Reddit's API](https://www.reddit.com/dev/api/) or through other public data sources like [Pushshift](https://pushshift.io/). Posts and subscriber statistics are pulled once daily and traffic data is pulled every month. 
+
+Removing u/AssistantBOT from a subreddit's moderation team automatically terminates all statistics-gathering for the sub. You can find the original source code for the first version of Artemis [here](https://github.com/kungming2/AssistantBOT).
+
+## About the Writer
+
+I (u/kungming2) am the writer and maintainer of u/translator-BOT ([Wenyuan](https://www.reddit.com/r/translatorBOT/wiki/wenyuan) and [Ziwen](https://www.reddit.com/r/translatorBOT/wiki/ziwen)) and u/LEGO_IDEAS_BOT, among others. My bot Wenyuan has been keeping [detailed statistics](https://www.reddit.com/r/translator/wiki/overall_statistics) for r/translator for over three years. I wanted to write a new statistics and flair enforcement bot for some of the other communities that I moderate and decided to share it with fellow moderators as well. 
