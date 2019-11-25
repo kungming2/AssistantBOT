@@ -2,6 +2,7 @@ _credentials.json
 *.db
 *.iml
 *.xml
+*.yaml
 *.gif
 Images/mobile.MP4
 .idea/dataSources/d65ed5d6-c420-4e38-88f1-cfd04be50e91/storage_v2/_src_/schema/main.uQUzAA.meta
