@@ -1,4 +1,7 @@
+fuzzywuzzy
 praw
 prawcore
+python-Levenshtein
 pytz
+pyyaml
 requests
