@@ -61,7 +61,7 @@ If you are comfortable with code and want to change some finer aspects of flair 
 
 All of the data that Artemis collects, except for an individual subreddit's traffic data, is publicly available through [Reddit's API](https://www.reddit.com/dev/api/) or through other public data sources like [Pushshift](https://pushshift.io/). Posts and subscriber statistics are pulled once daily and traffic data is pulled every month. 
 
-Removing u/AssistantBOT from a subreddit's moderation team automatically terminates all statistics-gathering for the sub. You can find the original source code for the first version of Artemis [here](https://github.com/kungming2/AssistantBOT).
+Removing u/AssistantBOT from a subreddit's moderation team automatically terminates all statistics-gathering for the sub. 
 
 ## About the Writer
 
