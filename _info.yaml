@@ -1,0 +1,14 @@
+# -----
+# These are the credentials necessary for Artemis to access Reddit.
+# -----
+username: AssistantBOT
+password:
+app_id:
+app_secret:
+backup_folder:
+backup_folder_2:
+helper_username: ArtemisHelper
+helper_password:
+helper_app_id:
+helper_app_secret:
+creator: kungming2
