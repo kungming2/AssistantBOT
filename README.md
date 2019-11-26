@@ -16,7 +16,7 @@ Artemis has two primary functions:
     * A breakdown of the userflairs of your community and how many people have each userflair (optional). 
 2. **Enforcing post flairs on your subreddit**. Artemis will help make sure submitters choose an appropriate flair for their post. (flair enforcing can be turned off, if desired)
 
-**For more detailed information, please see the [FAQ](https://www.reddit.com/user/AssistantBOT/comments/9vd2ob/artemis_example_messages_statistics_and_faq/)**.
+**For more detailed information, please see the [FAQ](https://www.reddit.com/r/AssistantBOT/wiki/faq)**.
 
 ## I want u/AssistantBOT to assist my subreddit!
 
