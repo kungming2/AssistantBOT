@@ -43,7 +43,7 @@ from _text import *
 
 """INITIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "1.6.28 Ginkgo"
+VERSION_NUMBER = "1.6.29 Ginkgo"
 
 # Define the location of the main files Artemis uses.
 # They should all be in the same folder as the Python script itself.
@@ -3657,7 +3657,7 @@ def wikipage_dashboard_collater(run_time=2.00):
 """WIDGET UPDATING FUNCTIONS"""
 
 
-def widget_updater():
+def widget_updater(action_data):
     """This function updates two widgets on r/AssistantBOT subreddit.
     The first one tells the date for the most recent completed
     statistics, given a green background. It also includes a count of
@@ -3665,6 +3665,7 @@ def widget_updater():
     The second is a table of public statistics pages. This runs in a
     secondary thread in the background separately from the main one.
 
+    :param action_data: A string of actions data passed for updating.
     :return: `None`, but widgets are edited.
     """
     # Get the list of public subreddits that are moderated.
@@ -3675,15 +3676,21 @@ def widget_updater():
     status_widget = None
     table_id = 'widget_13xztx496z34h'
     table_widget = None
+    actions_id = 'widget_14159zz24snay'
+    action_widget = None
+
+    # Assign the widgets to our variables.
     for widget in reddit.subreddit(USERNAME).widgets.sidebar:
         if isinstance(widget, praw.models.TextArea):
             if widget.id == status_id:
                 status_widget = widget
             elif widget.id == table_id:
                 table_widget = widget
+            elif widget.id == actions_id:
+                action_widget = widget
 
     # If we are unable to access either widget, return.
-    if status_widget is None or table_widget is None:
+    if status_widget is None or table_widget is None or action_widget is None:
         return
 
     # Edit the status widget. Change it to a color green, indicating
@@ -3723,6 +3730,11 @@ def widget_updater():
     body = body.format(len(formatted_lines), "\n".join(formatted_lines))
     table_widget.mod.update(text=body)
     logger.debug('Widget Updater: Updated the table widget.')
+
+    # Update the actions widget.
+    actions = action_data.split('\n\n')[1].strip()
+    action_widget.mod.update(text=actions)
+    logger.debug('Widget Updater: Updated the actions widget.')
 
     return
 
@@ -3768,6 +3780,36 @@ def widget_status_updater(index_num, list_amount, current_day, start_time):
     status_widget.mod.update(text=status, styles={'backgroundColor': '#ffa500',
                                                   'headerColor': '#222222'})
     logger.debug("Widget Status Updater: Widget updated at {:.2%} completion.".format(percentage))
+
+    return
+
+
+def widget_comparison_updater():
+    """This function updates a widget on r/Bot that has comparative data
+    for various moderator bots on Reddit.
+
+    :return: `None`.
+    """
+    # Search for the relevant status and table widgets for editing.
+    comp_id = 'widget_1415da9pei8k2'
+    comp_widget = None
+    for widget in reddit.subreddit('bot').widgets.sidebar:
+        if isinstance(widget, praw.models.TextArea):
+            if widget.id == comp_id:
+                comp_widget = widget
+                break
+
+    # Get the comparative data to save.
+    edited_body = []
+    my_text = wikipage_compare_bots().split('\n\n')[2].strip()
+    for line in my_text.split('\n'):
+        edited_body.append("|".join(line.split("|", 3)[:3]) + '|')
+    final_text = '\n'.join(edited_body)
+
+    # Edit the widget.
+    if comp_widget is not None:
+        comp_widget.mod.update(text=final_text)
+        logger.debug("Widget Comparison Updater: Widget updated.")
 
     return
 
@@ -4540,6 +4582,7 @@ def main_maintenance_secondary():
     # Check if there are any mentions and mark all modmail as read.
     main_obtain_mentions()
     main_read_modmail()
+    widget_comparison_updater()
 
     return
 
@@ -4880,8 +4923,10 @@ def main_timer(manual_start=False):
 
         # Update the dashboard and finalize the widgets in the sidebar.
         wikipage_dashboard_collater(run_time=elapsed_process_time)
-        third_thread = threading.Thread(target=widget_updater)
-        third_thread.start()
+        action_data = wikipage_get_all_actions()
+        widget_thread = threading.Thread(target=widget_updater,
+                                         args=action_data)
+        widget_thread.start()
 
     return
 
@@ -5288,7 +5333,6 @@ def main_messaging(check_for_invites=True):
     messages = list(reddit.inbox.unread(limit=None))
     messages.reverse()
     mod_invite_counter = 0
-    # TODO add an index for mod invites.
 
     # Iterate over the inbox, marking messages as read along the way.
     for message in messages:
