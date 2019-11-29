@@ -43,7 +43,7 @@ from _text import *
 
 """INITIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "1.6.29 Ginkgo"
+VERSION_NUMBER = "1.6.30 Ginkgo"
 
 # Define the location of the main files Artemis uses.
 # They should all be in the same folder as the Python script itself.
@@ -3658,12 +3658,13 @@ def wikipage_dashboard_collater(run_time=2.00):
 
 
 def widget_updater(action_data):
-    """This function updates two widgets on r/AssistantBOT subreddit.
+    """This function updates three widgets on r/AssistantBOT.
     The first one tells the date for the most recent completed
     statistics, given a green background. It also includes a count of
     how many public subreddits the bot assists.
     The second is a table of public statistics pages. This runs in a
     secondary thread in the background separately from the main one.
+    The third is a table of cumulative actions undertaken by the bot.
 
     :param action_data: A string of actions data passed for updating.
     :return: `None`, but widgets are edited.
@@ -3732,8 +3733,8 @@ def widget_updater(action_data):
     logger.debug('Widget Updater: Updated the table widget.')
 
     # Update the actions widget.
-    actions = action_data.split('\n\n')[1].strip()
-    action_widget.mod.update(text=actions)
+    actions_table = action_data.split('\n\n')[2].strip()
+    action_widget.mod.update(text=actions_table)
     logger.debug('Widget Updater: Updated the actions widget.')
 
     return
@@ -4925,7 +4926,7 @@ def main_timer(manual_start=False):
         wikipage_dashboard_collater(run_time=elapsed_process_time)
         action_data = wikipage_get_all_actions()
         widget_thread = threading.Thread(target=widget_updater,
-                                         args=action_data)
+                                         args=(action_data,))
         widget_thread.start()
 
     return
