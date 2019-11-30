@@ -43,7 +43,7 @@ from _text import *
 
 """INITIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "1.6.30 Ginkgo"
+VERSION_NUMBER = "1.6.31 Ginkgo"
 
 # Define the location of the main files Artemis uses.
 # They should all be in the same folder as the Python script itself.
@@ -166,6 +166,7 @@ MINIMUM_SUBSCRIBERS_USERFLAIR = 50000
 # The number of data entries to store, and how many posts to pull.
 ENTRIES_TO_KEEP = 8000
 POSTS_BROADER_LIMIT = 500
+POSTS_MINIMUM_LIMIT = 175
 
 # Global dictionary that stores formatted data for statistics pages,
 # which is cleared after the daily statistics run.
@@ -350,14 +351,20 @@ def database_subreddit_delete(community_name):
     return
 
 
-def database_monitored_subreddits_retrieve():
+def database_monitored_subreddits_retrieve(flair_enforce_only=False):
     """This function returns a list of all the subreddits that
     Artemis monitors WITHOUT the 'r/' prefix.
 
+    :param flair_enforce_only: A Boolean that if `True`, only returns
+                               the subreddits that have flair enforcing
+                               turned on.
     :return: A list of all monitored subreddits, in the order which
              they were first stored, oldest to newest.
     """
-    CURSOR_DATA.execute("SELECT * FROM monitored")
+    if not flair_enforce_only:
+        CURSOR_DATA.execute("SELECT * FROM monitored")
+    else:
+        CURSOR_DATA.execute("SELECT * FROM monitored WHERE flair_enforce is 1")
     results = CURSOR_DATA.fetchall()
 
     # Gather the saved subreddits' names and add them into a list.
@@ -3567,7 +3574,6 @@ def wikipage_dashboard_collater(run_time=2.00):
     """
     formatted_lines = []
     total_subscribers = []
-    enforce_statuses = []
     addition_dates = {}
     created_dates = {}
     index = {}
@@ -3606,7 +3612,6 @@ def wikipage_dashboard_collater(run_time=2.00):
         # Access the database and create table rows where the subreddit
         # and subscribers are included.
         result = database_last_subscriber_count(subreddit)
-        enforce_statuses.append(database_monitored_subreddits_enforce_status(subreddit))
         if result is not None:
             last_subscribers = result
         else:  # We couldn't find anything.
@@ -3631,7 +3636,7 @@ def wikipage_dashboard_collater(run_time=2.00):
     body = header + "\n".join(formatted_lines) + footer
 
     # Note down how long it took and tabulate some overall data.
-    num_of_enforced_subs = enforce_statuses.count(True)
+    num_of_enforced_subs = len(database_monitored_subreddits_retrieve(True))
     num_of_stats_enabled_subs = len([x for x in total_subscribers if x >= MINIMUM_SUBSCRIBERS])
     percentage_enforced = num_of_enforced_subs / len(list_of_subs)
     percentage_gathered = num_of_stats_enabled_subs / len(list_of_subs)
@@ -5853,32 +5858,64 @@ def main_get_posts_frequency():
     global NUMBER_TO_FETCH
 
     # 15 minutes is our interval to test for.
-    time_component = MINIMUM_AGE_TO_MONITOR * 3
+    # Begin processing from the oldest post.
+    time_interval = MINIMUM_AGE_TO_MONITOR * 3
     posts = list(reddit.subreddit('mod').new(limit=POSTS_BROADER_LIMIT))
-    posts.reverse()  # Get the oldest one first.
+    posts.reverse()
 
-    # Iterate over the oldest post, then calculate on average how many
-    # posts come in within 15 minutes.
+    # Take the creation time of the oldest post and calculate the
+    # interval between that and now. Then get the average time period
+    # for posts to come in and the nominal amount of posts that come in
+    # within our interval.
     interval_between_posts = (int(time.time()) - int(posts[0].created_utc)) / POSTS_BROADER_LIMIT
-    boundary_posts = time_component / interval_between_posts
+    boundary_posts = int(time_interval / interval_between_posts)
 
     # Next we determine how many posts Artemis should *fetch* in a 15
-    # minute period defined by the data. That number is twice the
+    # minute period defined by the data. That number is 1.5 times the
     # earlier number in order to account for overlap.
     if boundary_posts < POSTS_BROADER_LIMIT:
-        NUMBER_TO_FETCH = int(boundary_posts * 2)
+        NUMBER_TO_FETCH = boundary_posts * 1.5
     else:
         NUMBER_TO_FETCH = POSTS_BROADER_LIMIT
 
-    # If we need to adjust the broader limit, note that.
+    # If we need to adjust the broader limit, note that. Also make sure
+    # the number to fetch is always at least our minimum.
     if POSTS_BROADER_LIMIT < NUMBER_TO_FETCH:
-        logger.info('Get Posts Frequency: The broader limit of {} '
+        logger.info('Get Posts Frequency: The broader limit of {} posts'
                     'may need to be higher.'.format(POSTS_BROADER_LIMIT))
+    elif NUMBER_TO_FETCH < POSTS_MINIMUM_LIMIT:
+        NUMBER_TO_FETCH = int(POSTS_MINIMUM_LIMIT)
+        logger.info('Get Posts Frequency: Limit set to minimum limit of {} posts.'.format(POSTS_MINIMUM_LIMIT))
     else:
         logger.info('Get Posts Frequency: {} posts / {} minutes.'.format(NUMBER_TO_FETCH,
-                                                                         int(time_component / 60)))
+                                                                         int(time_interval / 60)))
 
     return
+
+
+def main_get_posts_sections():
+    """This function checks the moderated subreddits that have requested
+    flair enforcing and divides them into smaller sets. This is because
+    Reddit appears to have a limit of 250 subreddits per feed, which
+    would mean that Artemis encounters the limit regularly.
+
+    :return: A list of strings consisting of subreddits added together.
+    """
+    num_chunks = 4
+
+    # Access the database, selecting only ones with flair enforcing.
+    enforced_subreddits = database_monitored_subreddits_retrieve(True)
+
+    # Determine the number of subreddits we want per section.
+    # Then divide the list into `num_chunks`chunks.
+    # Then join the subreddits with `+` in order to make it
+    # parsable by `main_get_submissions` as a "multi-reddit."
+    n = int(len(enforced_subreddits) // num_chunks) + 10
+    my_range = len(enforced_subreddits) + n - 1
+    final_lists = [enforced_subreddits[i * n:(i + 1) * n] for i in range(my_range // n)]
+    final_components = ['+'.join(x) for x in final_lists]
+
+    return final_components
 
 
 def main_get_submissions():
@@ -5894,8 +5931,12 @@ def main_get_submissions():
     # Access the posts from my moderated communities and add them to a
     # list. Reverse the posts so that we start processing the older ones
     # first. The newest posts will be processed last.
-    posts = list(reddit.subreddit('mod').new(limit=NUMBER_TO_FETCH))
-    posts.reverse()
+    # The communities are fetched in sections in order to keep the
+    posts = []
+    sections = main_get_posts_sections()
+    for section in sections:
+        posts += list(reddit.subreddit(section).new(limit=NUMBER_TO_FETCH))
+    posts.sort(key=lambda x: x.id.lower())
 
     # Iterate over the fetched posts. We have a number of built-in
     # checks to reduce the amount of processing.
