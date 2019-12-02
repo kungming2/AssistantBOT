@@ -36,6 +36,7 @@ these action messages will get classified as modmail "discussions" and will be i
 | `Update`    | Create an advanced configuration page for r/{0}. *[See here for details]\
 (https://www.reddit.com/r/AssistantBOT/wiki/advanced)*. |
 | `Revert`    | Revert to the default configuration and clear all advanced settings.              |
+| `Takeout`   | Export your subreddit's Artemis data as JSON.                                     |
 
 ---
 
@@ -47,7 +48,7 @@ Have a good day!
 """
 MSG_MOD_INIT_MINIMUM = """
 ⏸️ This subreddit currently has fewer than {0} subscribers, so I've turned off statistics \
-gathering for now. I will automatically resume gathering statistics once it reaches that \
+gathering for now. I will automatically resume statistics gathering once it reaches that \
 milestone (it is currently {1} subscribers short).
 """
 MSG_MOD_INIT_NON_MINIMUM = """
@@ -125,6 +126,20 @@ This wiki page is by default only visible to moderators and is *not* listed on t
 
 Have a good day!
 """
+MSG_MOD_TAKEOUT = '''
+🥡 Here's your takeout data from Artemis formatted in [JSON](https://en.wikipedia.org/wiki/JSON),\
+ an open-standard file format that is easy for humans to read and write and easy for machines to \
+parse and generate.
+
+This link is hosted on my [Pastebin](https://pastebin.com/) and is **only viewable for one hour** \
+by those who have the link. The data will be automatically deleted after that, so please download \
+it before deletion.
+
+#### [Artemis Takeout Data for r/{}]({})
+'''
+MSG_MOD_TAKEOUT_NONE = '''
+⁉️ There doesn't appear to be any data from r/{} in my database to takeout.
+'''
 MSG_MOD_LEAVE = '''
 👋 Artemis will no longer enforce flairs or gather statistics for r/{}. Have a good day!
 '''
