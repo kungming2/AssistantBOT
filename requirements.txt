@@ -1,7 +1,7 @@
 fuzzywuzzy
+pbwrap
 praw
 prawcore
 python-Levenshtein
-pytz
 pyyaml
 requests
