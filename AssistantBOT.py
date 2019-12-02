@@ -16,6 +16,7 @@ For more information see: https://www.reddit.com/r/AssistantBOT
 import ast
 import calendar
 import datetime
+import json
 import logging
 import os
 import random
@@ -32,18 +33,18 @@ from urllib.error import HTTPError, URLError
 
 import praw
 import prawcore
-import pytz
 import requests
 import yaml
 from fuzzywuzzy import fuzz
 from fuzzywuzzy import process
+from pbwrap import Pastebin
 from requests.exceptions import ConnectionError
 
 from _text import *
 
 """INITIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "1.6.31 Ginkgo"
+VERSION_NUMBER = "1.7.1 Hazel"
 
 # Define the location of the main files Artemis uses.
 # They should all be in the same folder as the Python script itself.
@@ -125,6 +126,10 @@ BOT_DISCLAIMER = ("\n\n---\n^Artemis: ^a ^moderation ^assistant ^for ^r/{0} ^| "
 CONN_DATA = sqlite3.connect(FILE_ADDRESS_DATA)
 CURSOR_DATA = CONN_DATA.cursor()
 
+# Pastebin authentication information.
+PASTEBIN_API_KEY = ARTEMIS_INFO['pastebin_api_key']
+PASTEBIN_PASSWORD = ARTEMIS_INFO['pastebin_password']
+
 # We don't want to log common connection errors.
 CONNECTION_ERRORS = ['500 HTTP', '502 HTTP', '503 HTTP', '504 HTTP', 'RequestException']
 
@@ -192,22 +197,14 @@ def date_convert_to_string(unix_integer):
 
 def date_convert_to_unix(date_string):
     """Converts a date formatted as YYYY-MM-DD into a Unix integer of
-    its equivalent UTC time. One can use `common_timezones` in the
-    `pytz` module to get a list of commonly used time zones.
-    This UTC offset should be altered in the unlikely event that
-    Artemis is moved to a new time zone.
+    its equivalent UTC time.
 
     :param date_string: Any date formatted as YYYY-MM-DD.
     :return: The string timestamp of MIDNIGHT that day in UTC.
     """
-    # Account for timezone differences, by getting the
-    # UTC offset of the region in seconds.
-    tz = pytz.timezone('US/Pacific')
-    time_difference_sec = int(datetime.datetime.now(tz).utcoffset().total_seconds())
-
-    # Get the Unix timestamp by adding the time difference to
-    # the local time.
-    utc_timestamp = int(time.mktime(time.strptime(date_string, '%Y-%m-%d'))) + time_difference_sec
+    year, month, day = date_string.split('-')
+    dt = datetime.datetime(int(year), int(month), int(day))
+    utc_timestamp = int(dt.replace(tzinfo=datetime.timezone.utc).timestamp())
 
     return utc_timestamp
 
@@ -788,6 +785,56 @@ def database_statistics_posts_retrieve(subreddit_name):
         return ast.literal_eval(result[1])
 
     return
+
+
+def database_takeout(subreddit_name):
+    """This function gets all the information about a subreddit and
+    converts it to JSON to share with the moderators of a subreddit
+    upon request. This should work for any subreddit that has data
+    in the database, not just currently monitored.
+
+    :param subreddit_name: Name of a subreddit (no r/).
+    :return: A JSON document. If the document is of length 44,
+             it can be treated as blank by other functions that use it.
+    """
+    master_dictionary = {'activity': {}, 'settings': database_extended_retrieve(subreddit_name)}
+
+    # Package the actions.
+    CURSOR_DATA.execute('SELECT * FROM subreddit_actions WHERE subreddit = ?', (subreddit_name,))
+    result = CURSOR_DATA.fetchone()
+    if result is not None:
+        master_dictionary['actions'] = ast.literal_eval(result[1])
+
+    # Package the activity.
+    CURSOR_DATA.execute('SELECT * FROM subreddit_activity WHERE subreddit = ?', (subreddit_name,))
+    results = CURSOR_DATA.fetchall()
+    if results is not None:
+        for entry in results:
+            contents = ast.literal_eval(entry[2])
+            master_dictionary['activity'][entry[1]] = contents
+
+    # Package the posts.
+    posts_stats = database_statistics_posts_retrieve(subreddit_name)
+    if posts_stats is not None:
+        master_dictionary['statistics_posts'] = posts_stats
+
+    # Package the subscribers.
+    subbed_stats = database_subscribers_retrieve(subreddit_name)
+    if subbed_stats is not None:
+        master_dictionary['subscribers'] = subbed_stats
+
+    # Package the traffic.
+    CURSOR_DATA.execute("SELECT * FROM subreddit_traffic WHERE subreddit = ?", (subreddit_name,))
+    traffic_result = CURSOR_DATA.fetchone()
+    if traffic_result is not None:
+        master_dictionary['traffic'] = ast.literal_eval(traffic_result[1])
+
+    # Convert to JSON.
+    master_json = json.dumps(master_dictionary, sort_keys=True, indent=4)
+    logger.info('Database Takeout: r/{} takeout data generated. '
+                "Length is {:,} characters.".format(subreddit_name, len(master_json)))
+
+    return master_json
 
 
 def database_cleanup():
@@ -2830,8 +2877,9 @@ def subreddit_userflair_counter(subreddit_name):
     # Format our output. Add a header and display everything else
     # as a table.
     header = ("\n\n## Userflairs\n\n"
-              "* Subscribers with flair: {:,} ({:.2%} of total subscribers)\n"
-              "* Number of used flairs: {}")
+              "* **Userflair statistics last recorded**: {}\n"
+              "* **Subscribers with flair**: {:,} ({:.2%} of total subscribers)\n"
+              "* **Number of used flairs**: {}")
 
     # If there are subscribers, calculate the percentage of those who
     # have userflairs. Otherwise, include a boilerplate string.
@@ -2839,7 +2887,8 @@ def subreddit_userflair_counter(subreddit_name):
         flaired_percentage = users_w_flair / relevant_sub.subscribers
     else:
         flaired_percentage = '---'
-    body = header.format(users_w_flair, flaired_percentage, len(usage_index))
+    body = header.format(date_convert_to_string(time.time()), users_w_flair,
+                         flaired_percentage, len(usage_index))
 
     # Add the used parts as needed. If we have a short-ish list of
     # unused flairs, tabulate that too.
@@ -3321,18 +3370,19 @@ def wikipage_userflair_editor(subreddit_list):
     current_time = int(time.time())
     month = date_month_convert_to_string(current_time)
 
-    for community in list(sorted(subreddit_list)):
+    for community in subreddit_list:
 
         # Check mod permissions; if I am not a mod, skip this.
-        # If I have the `flair` mod permission, get the data for the
-        # subreddit.
+        # If I have the `flair` and `wiki` mod permissions,
+        # get the data for the subreddit.
         perms = main_obtain_mod_permissions(community)
         if not perms[0]:
             continue
-        elif 'flair' in perms[1] or 'all' in perms[1]:
+        elif 'flair' in perms[1] and 'wiki' in perms[1] or 'all' in perms[1]:
             # Retrieve the data from the counter.
             # This will either return `None` if not available, or a
             # Markdown segment for integration.
+            logger.info('Wikipage Userflair Editor: Checking r/{} userflairs...'.format(community))
             userflair_section = subreddit_userflair_counter(community)
 
             # If the result is not None, there's valid data.
@@ -4740,7 +4790,8 @@ def main_timer(manual_start=False):
                     userflair_check_list.append(sub)
 
         # Launch the secondary userflair updating thread as another
-        # thread run concurrently.
+        # thread run concurrently. It is alphabetized ahead of time.
+        userflair_check_list = list(sorted(userflair_check_list))
         logger.info('Main Timer: Checking the following subreddits '
                     'for userflairs: {}'.format(userflair_check_list))
         userflair_thread = threading.Thread(target=wikipage_userflair_editor,
@@ -4768,7 +4819,7 @@ def main_timer(manual_start=False):
 
             # The following part is to save the data to cache so it can
             # be resumed in case of an error.
-            logger.info('Main Timer: Updating current updater dictionary state in cache...')
+            logger.info('Main Timer: Saving current updater dictionary state to cache...')
 
             # Generate a unique index if it doesn't exist to avoid
             # creating more than one entry per date.
@@ -5080,6 +5131,37 @@ def main_recheck_oldest():
     return
 
 
+def main_takeout(subreddit_name):
+    """A function that fetches all the data of a subreddit and then
+    uploads it to a time-limited Pastebin link. More info here:
+    https://pbwrap.readthedocs.io/en/latest/pastebin.html and
+    https://pastebin.com/api#6
+
+    :param subreddit_name: Name of a subreddit.
+    :return: A Pastebin link containing the takeout JSON data.
+    """
+    expiry_time = '1H'
+
+    # Connect to Pastebin and authenticate.
+    pb = Pastebin(PASTEBIN_API_KEY)
+    pb.authenticate(USERNAME, PASTEBIN_PASSWORD)
+
+    # Upload the data. `1` means it's an unlisted paste.
+    json_data = database_takeout(subreddit_name.lower())
+
+    # If the length of the JSON data is a set amount, then there is
+    # nothing recorded because that's the default dictionary that is
+    # created by the takeout function.
+    if len(json_data) == 44:
+        return None
+    else:
+        title = "Artemis Takeout Data for r/{}".format(subreddit_name)
+        url = pb.create_paste(json_data, 1, title, expiry_time, 'json')
+        main_counter_updater(subreddit_name, 'Exported takeout data')
+
+    return url
+
+
 def main_obtain_mentions():
     """The purpose of this function is to check and see if Artemis is
     mentioned in a post/comment somewhere on Reddit. This function
@@ -5305,8 +5387,8 @@ def main_post_approval(submission, template_id=None):
         # in Default mode. Send the submission author the default
         # message instead.
         messaging_op_approved(post_subreddit, submission, strict_mode=False)
-        logger.info('Post Approval: Post `{}` author sent the '
-                    'default approval message.'.format(post_id))
+        logger.info('Post Approval: Sent the default approval message '
+                    'to post `{}` author.'.format(post_id))
 
     # Check to see if there are specific tags for this
     # submission to assign.
@@ -5646,6 +5728,22 @@ def main_messaging(check_for_invites=True):
             logger.info("Messaging: r/{} invite detected "
                         "but mod counter reached.".format(new_subreddit))
 
+        # Takeout, or exporting data, is located here in order to allow
+        # for subreddits that formerly used Artemis to gain access to
+        # any stored data.
+        if 'takeout' in msg_subject:
+            logger.info('Messaging: New message to export '
+                        'r/{} takeout data.'.format(new_subreddit))
+
+            # Get the Pastebin data and reply to the message.
+            pastebin_url = main_takeout(new_subreddit)
+            if pastebin_url is not None:
+                body = MSG_MOD_TAKEOUT.format(new_subreddit, pastebin_url)
+            else:
+                body = MSG_MOD_TAKEOUT_NONE.format(new_subreddit)
+            message.reply(body + BOT_DISCLAIMER.format(new_subreddit))
+            logger.info('Messaging: Replied with takeout data.')
+
         # EXIT EARLY if subreddit is NOT in monitored list and it wasn't
         # a mod invite, as there's no point in processing said message.
         current_permissions = main_obtain_mod_permissions(new_subreddit)
@@ -5885,7 +5983,8 @@ def main_get_posts_frequency():
                     'may need to be higher.'.format(POSTS_BROADER_LIMIT))
     elif NUMBER_TO_FETCH < POSTS_MINIMUM_LIMIT:
         NUMBER_TO_FETCH = int(POSTS_MINIMUM_LIMIT)
-        logger.info('Get Posts Frequency: Limit set to minimum limit of {} posts.'.format(POSTS_MINIMUM_LIMIT))
+        logger.info('Get Posts Frequency: Limit set to '
+                    'minimum limit of {} posts.'.format(POSTS_MINIMUM_LIMIT))
     else:
         logger.info('Get Posts Frequency: {} posts / {} minutes.'.format(NUMBER_TO_FETCH,
                                                                          int(time_interval / 60)))
