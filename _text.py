@@ -36,7 +36,8 @@ these action messages will get classified as modmail "discussions" and will be i
 | `Update`    | Create an advanced configuration page for r/{0}. *[See here for details]\
 (https://www.reddit.com/r/AssistantBOT/wiki/advanced)*. |
 | `Revert`    | Revert to the default configuration and clear all advanced settings.              |
-| `Takeout`   | Export your subreddit's Artemis data as JSON.                                     |
+| `Takeout`   | Export r/{0}'s Artemis data as JSON. *[See here for details]\
+(https://www.reddit.com/r/AssistantBOT/wiki/faq#wiki_takeout) |
 
 ---
 
@@ -131,7 +132,8 @@ MSG_MOD_TAKEOUT = '''
  an open-standard file format that is easy for humans to read and write and easy for machines to \
 parse and generate.
 
-This link is hosted on my [Pastebin](https://pastebin.com/) and is **only viewable for one hour** \
+This link is hosted on my [Pastebin](https://pastebin.com/u/assistantbot) \
+and is **only viewable for one hour** \
 by those who have the link. The data will be automatically deleted after that, so please download \
 it before deletion.
 
