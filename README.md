@@ -1,15 +1,15 @@
-## Introducing Artemis (u/AssistantBOT), a flair enforcer and statistics bot for any subreddit!
+## Introducing Artemis ([u/AssistantBOT](https://www.reddit.com/user/AssistantBOT/)), a flair enforcer and statistics bot for any subreddit!
 
 * Looking for an easy-to-use bot to help make sure your community's submitters remember to choose a post flair? 
 * Want more detailed and extensive statistics on the health and growth of your community? 
 
-**Artemis (u/AssistantBOT)** is an easy-to-use and helpful Reddit bot written by a moderator *for* moderators to assist them with organizing and gaining insights into their own communities. (Now used on 500+ subreddits with over 27 million subscribers combined!)
+**Artemis (u/AssistantBOT)** is an easy-to-use and helpful Reddit bot written by a moderator *for* moderators to assist them with organizing and gaining insights into their own communities. (Now used on 550+ subreddits with over 30 million subscribers  and 2700+ moderators combined!)
 
 ## Functions (TL;DR)
 
 Artemis has two primary functions:
 
-1. **Recording useful statistics for your subreddit**. Artemis will compile statistics on the following and format it in a summary wikipage that's updated daily (see the sidebar on New Reddit or mobile of this subreddit for examples). This wikipage includes:
+1. **Recording useful statistics for your subreddit**. Artemis will compile statistics on the following and format it in a summary wikipage that's updated daily (see the sidebar on New Reddit or mobile of [this subreddit for examples](https://new.reddit.com/r/AssistantBOT/)). This wikipage includes:
     * A monthly statistics breakdown of your community's posts and its activity (most active days, top submitters/commenters, top-voted posts).
     * Daily subscriber growth, both future and historical, as well as past and future subscriber milestones. (replacement and complement for [RedditMetrics](http://redditmetrics.com/)).
     * Traffic data, including the average uniques and pageviews for your community and its estimated traffic for the current month.
@@ -65,4 +65,4 @@ Removing u/AssistantBOT from a subreddit's moderation team automatically termina
 
 ## About the Writer
 
-I (u/kungming2) am the writer and maintainer of u/translator-BOT ([Wenyuan](https://www.reddit.com/r/translatorBOT/wiki/wenyuan) and [Ziwen](https://www.reddit.com/r/translatorBOT/wiki/ziwen)) and u/LEGO_IDEAS_BOT, among others. My bot Wenyuan has been keeping [detailed statistics](https://www.reddit.com/r/translator/wiki/overall_statistics) for r/translator for over three years. I wanted to write a new statistics and flair enforcement bot for some of the other communities that I moderate and decided to share it with fellow moderators as well. 
+I ([u/kungming2](https://www.reddit.com/user/kungming2/)) am the writer and maintainer of [u/translator-BOT](https://www.reddit.com/user/translator-BOT) ([Wenyuan](https://www.reddit.com/r/translatorBOT/wiki/wenyuan) and [Ziwen](https://www.reddit.com/r/translatorBOT/wiki/ziwen)) and [u/LEGO_IDEAS_BOT](https://www.reddit.com/user/LEGO_IDEAS_BOT), among others. My bot Wenyuan has been keeping [detailed statistics](https://www.reddit.com/r/translator/wiki/overall_statistics) for r/translator [for over three years](https://www.reddit.com/r/translator/search?q=title%3Astatistics+author%3Atranslator-BOT&restrict_sr=on&include_over_18=on&sort=new&t=all). I wanted to write a new statistics and flair enforcement bot for some of the other communities that I moderate and decided to share it with fellow moderators as well. 
