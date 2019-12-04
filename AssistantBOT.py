@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: UTF-8 -*-
 
-"""
-Artemis (u/AssistantBOT) is a flair enforcer and statistics compiler
+"""Artemis (u/AssistantBOT) is a flair enforcer and statistics compiler
 for subreddits that have invited it to assist.
 
 Artemis has two primary functions:
@@ -44,7 +43,7 @@ from _text import *
 
 """INITIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "1.7.1 Hazel"
+VERSION_NUMBER = "1.7.3 Hazel"
 
 # Define the location of the main files Artemis uses.
 # They should all be in the same folder as the Python script itself.
@@ -89,9 +88,8 @@ def load_logger():
     logger = logging.getLogger(__name__)
 
     # Define the logging handler (the file to write to.)
-    handler = logging.FileHandler(FILE_ADDRESS_LOGS, 'a', 'utf-8')
-
     # By default only log INFO level messages or higher.
+    handler = logging.FileHandler(FILE_ADDRESS_LOGS, 'a', 'utf-8')
     handler.setLevel(logging.INFO)
 
     # Set the time format in the logging handler.
@@ -150,7 +148,8 @@ SUBSCRIBER_MILESTONES = [10, 20, 25, 50, 100, 250, 500, 750,
                          25000000, 30000000]
 
 # The day of the month for monthly statistics functions to run.
-MONTH_ACTION_DAY = 4
+MONTH_ACTION_DAY = 1
+MONTH_TRAFFIC_DAY = 4
 
 # The hour daily functions will run (midnight UTC in this case).
 ACTION_TIME = 0
@@ -1085,13 +1084,14 @@ def subreddit_traffic_recorder(subreddit_name):
         month_pageviews = month[2]
         year_month = date_month_convert_to_string(unix_month_time)
 
-        # We don't want to save the data for the current month, since
-        # it's incomplete.
-        # We also don't save the data if there is NOTHING for the month.
+        # This would also save the data for the current month, which is
+        # fine except that traffic data usually has initial gaps.
+        # Therefore, this function is run twice. It will update the
+        # numbers with whatever is most recent.
         if current_month != year_month and month_uniques > 0 and month_pageviews > 0:
             traffic_dictionary[year_month] = [month_uniques, month_pageviews]
 
-    # Take the formatted dictionary and save it to our database.
+    # Check for pre-existing traffic data stored in the database.
     sql_command = "SELECT * FROM subreddit_traffic WHERE subreddit = ?"
     CURSOR_DATA.execute(sql_command, (subreddit_name,))
     result = CURSOR_DATA.fetchone()
@@ -2219,6 +2219,8 @@ def subreddit_pushshift_activity_retriever(subreddit_name, start_time, end_time,
     """
     # Convert YYYY-MM-DD UTC to Unix time, get the number of days
     # in month, and get the number of days in between these two dates.
+    # When getting the `end_time`, Artemis will get it from literally
+    # the last second of the day to account for full coverage.
     num_days = date_num_days_between(start_time, end_time) + 1
     specific_month = start_time.rsplit('-', 1)[0]
     start_time = date_convert_to_unix(start_time)
@@ -2590,13 +2592,20 @@ def subreddit_statistics_retriever(subreddit_name):
     if not list_of_dates:
         return
 
-    # Get all the months that are between our two dates.
+    # Get all the months that are between our two dates with results.
     oldest_date = list_of_dates[0]
     newest_date = list_of_dates[-1]
     intervals = [oldest_date, newest_date]
     start, end = [datetime.datetime.strptime(_, "%Y-%m-%d") for _ in intervals]
     list_of_months = list(OrderedDict(((start + datetime.timedelta(_)).strftime("%Y-%m"),
                                        None) for _ in range((end - start).days)).keys())
+
+    # If there are results from the first day, we add the current month
+    # as well. This is to allow for results from the first day to appear
+    # in the update on the second day. Otherwise, because the first day
+    # begins at midnight the latest month will not be included
+    if newest_date.endswith('-01') and newest_date[:-3] not in list_of_months:
+        list_of_months.append(newest_date[:-3])
 
     # Iterate per month.
     for entry in list_of_months:
@@ -2693,7 +2702,7 @@ def subreddit_statistics_retrieve_all(subreddit_name):
 
     # If there is nothing returned, then it's probably a sub that gets
     # TONS of submissions, so we make it a single list with one item.
-    if len(actual_days_to_get) == 0:
+    if not actual_days_to_get:
         actual_days_to_get = [date_convert_to_string(current_time)]
 
     # Now we fetch literally all the possible posts we can from Reddit
@@ -3405,8 +3414,9 @@ def wikipage_userflair_editor(subreddit_list):
                 stats_page.edit(content=new_text,
                                 reason='Updating with userflair data for {}.'.format(month))
 
-    logger.info('Wikipage Userflair Editor: '
-                'Completed userflair update in {:.2f}s.'.format(time.time() - current_time))
+    minutes_elapsed = round((time.time() - current_time) / 60, 2)
+    logger.info('Wikipage Userflair Editor: Completed userflair update '
+                'in {:.2f} minutes.'.format(minutes_elapsed))
 
     return
 
@@ -4637,8 +4647,8 @@ def main_maintenance_secondary():
 
     # Check if there are any mentions and mark all modmail as read.
     main_obtain_mentions()
-    main_read_modmail()
     widget_comparison_updater()
+    main_read_modmail()
 
     return
 
@@ -4698,7 +4708,6 @@ def main_timer(manual_start=False):
     # Define the times we want actions to take place, in order:
     # The day of the month to gather the top posts from the last month.
     # The amount of hours to allow for the statistics routine to run.
-    top_action_day = 1
     action_window = 6
     cycle_position = 0
 
@@ -4771,7 +4780,7 @@ def main_timer(manual_start=False):
     # order to not conflict with the main runtime.
     # This is currently set for 1st and 15th of each month, and more
     # specifically only in the first hour window.
-    userflair_update_days = [top_action_day, top_action_day + 14]
+    userflair_update_days = [MONTH_ACTION_DAY, MONTH_ACTION_DAY + 14]
     if int(current_date_only) in userflair_update_days and current_hour == ACTION_TIME:
         logger.info('Main Timer: Initializing a secondary thread for userflair updates.')
         userflair_check_list = []
@@ -4788,6 +4797,7 @@ def main_timer(manual_start=False):
             elif 'userflair_statistics' in database_extended_retrieve(sub):
                 if database_extended_retrieve(sub)['userflair_statistics']:
                     userflair_check_list.append(sub)
+                    main_counter_updater(sub, 'Updated userflair statistics')
 
         # Launch the secondary userflair updating thread as another
         # thread run concurrently. It is alphabetized ahead of time.
@@ -4886,9 +4896,10 @@ def main_timer(manual_start=False):
                                                                             current_date_string))
         CONN_DATA.commit()
 
-        # If it's a certain day of the month, also get the traffic data
-        # and update the user flairs in a new thread.
-        if int(current_date_only) == MONTH_ACTION_DAY:
+        # If it's a certain day of the month, also get the traffic data.
+        # Traffic data is retrieved twice in order to account for any
+        # gaps that might occur due to the site issues.
+        if int(current_date_only) in [MONTH_ACTION_DAY, MONTH_TRAFFIC_DAY]:
             subreddit_traffic_recorder(community)
 
         # SKIP CHECK: See if a subreddit either
@@ -4918,7 +4929,7 @@ def main_timer(manual_start=False):
 
         # If it's a certain day of the month (the first), also get the
         # top posts from the last month and save them.
-        if int(current_date_only) == top_action_day:
+        if int(current_date_only) == MONTH_ACTION_DAY:
             last_month_dt = (datetime.date.today().replace(day=1) - datetime.timedelta(days=1))
             last_month_string = last_month_dt.strftime("%Y-%m")
             subreddit_top_collater(community, last_month_string, last_month_mode=True)
@@ -4958,13 +4969,13 @@ def main_timer(manual_start=False):
                     'for date {}.'.format(current_date_string))
 
     # Recheck for oldest submissions once a month for those subreddits
-    # that lack them.
-    if int(current_date_only) == top_action_day:
+    # that lack them, recheck on the same as the traffic day.
+    if int(current_date_only) == MONTH_TRAFFIC_DAY:
         main_recheck_oldest()
 
     # If we are deployed on Linux (Raspberry Pi), also run other
     # routines. These will not run on non-live platforms.
-    if sys.platform == "linux":
+    if sys.platform.startswith('linux'):
         # We have not performed the main actions for today yet.
         # Run the backup and cleanup routines, and update the
         # configuration data in a parallel thread.
@@ -5047,7 +5058,13 @@ def main_obtain_mod_permissions(subreddit_name):
                       Second item is a list of permissions, if any.
     """
     r = reddit.subreddit(subreddit_name)
-    moderators_list = [mod.name.lower() for mod in r.moderator()]
+
+    # This is a try/except sequence to account for private subreddits
+    # since one is unable to get a mod list from a private one.
+    try:
+        moderators_list = [mod.name.lower() for mod in r.moderator()]
+    except prawcore.exceptions.Forbidden:
+        return False, None
     am_mod = True if USERNAME.lower() in moderators_list else False
 
     if not am_mod:
@@ -5065,11 +5082,14 @@ def main_read_modmail():
     """The purpose of this function is to simply mark as read the
     modmail on the subreddits it has access to. It does not need to use
     the database so it is run in a separate secondary thread.
+    This is done just so that there aren't a ton of unread modmail
+    notifications piling up; Artemis does not do anything with the mail.
 
     :return: `None`.
     """
     all_subs = {}
     list_with_modmail = []
+    modmail_start = time.time()
 
     # Get the list of all monitored subreddits (this is NOT database
     # dependent). For each fetch the real name of the subreddit, and the
@@ -5095,6 +5115,8 @@ def main_read_modmail():
             subreddit.modmail.bulk_read(state='all')
         except prawcore.exceptions.Forbidden:
             continue
+    modmail_end = int(round((time.time() - modmail_start) / 60, 2))
+    logger.info('Read Modmail: All completed. Elapsed time: {}m.'.format(modmail_end))
 
     return
 
@@ -5892,7 +5914,7 @@ def main_messaging(check_for_invites=True):
             logger.info("Messaging: > Sent demod confirmation reply to moderators.")
 
             # Notify my creator about it.
-            creator_msg = ("[What?](https://media.giphy.com/media/uLTvMTebsVdSw/giphy.gif)"
+            creator_msg = ("[What?](https://media.giphy.com/media/GXWJTMP8ZhHKE/giphy.gifv)"
                            '\n\n* **r/{}**'.format(new_subreddit))
             subject_line = 'Demodded from subreddit: r/{}'.format(new_subreddit)
             reddit.redditor(CREATOR).message(subject=subject_line,
@@ -5955,6 +5977,13 @@ def main_get_posts_frequency():
     """
     global NUMBER_TO_FETCH
 
+    # If not deployed on Linux, we can use a set number instead.
+    if not sys.platform.startswith('linux'):
+        NUMBER_TO_FETCH = POSTS_MINIMUM_LIMIT
+        logger.info('Get Posts Frequency: Testing on `{}`. '
+                    'Limit set to minimum.'.format(sys.platform))
+        return
+
     # 15 minutes is our interval to test for.
     # Begin processing from the oldest post.
     time_interval = MINIMUM_AGE_TO_MONITOR * 3
@@ -5972,7 +6001,7 @@ def main_get_posts_frequency():
     # minute period defined by the data. That number is 1.5 times the
     # earlier number in order to account for overlap.
     if boundary_posts < POSTS_BROADER_LIMIT:
-        NUMBER_TO_FETCH = boundary_posts * 1.5
+        NUMBER_TO_FETCH = int(boundary_posts * 1.5)
     else:
         NUMBER_TO_FETCH = POSTS_BROADER_LIMIT
 
@@ -6330,7 +6359,7 @@ if len(sys.argv) > 1:
         REGULAR_MODE = True
 else:
     # We only want to enable the regular loop if we're running on Linux.
-    REGULAR_MODE = True if sys.platform == "linux" else False
+    REGULAR_MODE = True if sys.platform.startswith('linux') else False
 
 # This is the regular loop for Artemis, running main functions in
 # sequence while taking a `WAIT` break in between.
