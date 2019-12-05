@@ -43,7 +43,7 @@ from _text import *
 
 """INITIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "1.7.3 Hazel"
+VERSION_NUMBER = "1.7.4 Hazel"
 
 # Define the location of the main files Artemis uses.
 # They should all be in the same folder as the Python script itself.
@@ -3880,6 +3880,30 @@ def widget_comparison_updater():
     return
 
 
+def widget_operational_status_updater():
+    """Widget that updates on r/AssistantBOT with the current time."""
+    # Format according to ISO 8601. https://www.w3.org/TR/NOTE-datetime
+    current_time = datetime.datetime.fromtimestamp(time.time(), tz=datetime.timezone.utc).isoformat()[:19]
+    current_time += 'Z'
+
+    # Get the operational status widget.
+    operational_id = 'widget_142uuvol5mzqi'
+    operational_widget = None
+    for widget in reddit.subreddit(USERNAME).widgets.sidebar:
+        if isinstance(widget, praw.models.TextArea):
+            if widget.id == operational_id:
+                operational_widget = widget
+                break
+
+    # Update the widget with the current time.
+    if operational_widget is not None:
+        operational_status = '# ✅ {}'.format(current_time)
+        operational_widget.mod.update(text=operational_status)
+        return True
+    else:
+        return False
+
+
 """FLAIR ENFORCING FUNCTIONS"""
 
 
@@ -4716,6 +4740,7 @@ def main_timer(manual_start=False):
     previous_date_string = date_convert_to_string(start_time - 86400)
     current_date_string = date_convert_to_string(start_time)
     current_hour = int(datetime.datetime.utcfromtimestamp(start_time).strftime('%H'))
+    current_minute = datetime.datetime.utcnow().minute
     current_date_only = datetime.datetime.utcfromtimestamp(start_time).strftime('%d')
 
     # Check to see if the statistics activity has already been run.
@@ -4728,6 +4753,10 @@ def main_timer(manual_start=False):
         all_stats_done = True
     else:
         all_stats_done = False
+
+    # Update the operation status widget at the start of the hour.
+    if current_minute <= 5:
+        widget_operational_status_updater()
 
     # If we are outside the update window, exit. Otherwise, if a manual
     # update by the creator was not requested, and all statistics were
