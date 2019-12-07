@@ -43,7 +43,7 @@ from _text import *
 
 """INITIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "1.7.4 Hazel"
+VERSION_NUMBER = "1.7.6 Hazel"
 
 # Define the location of the main files Artemis uses.
 # They should all be in the same folder as the Python script itself.
@@ -1709,14 +1709,16 @@ def subreddit_subscribers_milestone_chart_former(subreddit_name):
 def subreddit_subscribers_pushshift_historical_recorder(subreddit_name, fetch_today=False):
     """Pushshift's API stores subscriber data for subreddits from about
     2018-03-15. This function will go back until then and get the
-    subscribers for each day if it can.
+    subscribers for each day if it can, namely by grabbing data in
+    chunks and analyzing them for subscriber count.
 
     :param subreddit_name: Name of a subreddit.
     :param fetch_today: Whether we should get just today's stats, or a
-                        list of stats from March 15, 2018.
+                        list of stats from March 15, 2018 onwards.
     :return:
     """
     subscribers_dictionary = {}
+    chunk_size = 7
     logger.info('Subscribers PS: Retrieving subscribers for r/{}...'.format(subreddit_name))
 
     # If we just want to get today's stats just create a list with today
@@ -1726,37 +1728,84 @@ def subreddit_subscribers_pushshift_historical_recorder(subreddit_name, fetch_to
     if not fetch_today:
         yesterday = int(time.time()) - 86400
         yesterday_string = date_convert_to_string(yesterday)
-        list_of_days_to_get = date_get_series_of_days("2018-03-15", yesterday_string)
+
+        # Insert check for subreddit age. If the subreddit was created
+        # after the default start date of March 15, 2018, use the
+        # creation date as the starting point instead.
+        subreddit_created = int(reddit.subreddit(subreddit_name).created_utc)
+        subreddit_created_date = date_convert_to_string(subreddit_created)
+        if "2018-03-15" > subreddit_created_date:
+            start_date = "2018-03-15"
+        else:
+            start_date = subreddit_created_date
+        logger.debug("Subscribers PS: Retrieval will start from {}.".format(start_date))
+        list_of_days_to_get = date_get_series_of_days(start_date, yesterday_string)
     else:
         today_string = date_convert_to_string(time.time())
         list_of_days_to_get = [today_string]
 
-    api_search_query = ("https://api.pushshift.io/reddit/search/submission/?subreddit={}"
-                        "&after={}&before={}&sort_type=created_utc&size=1")
+    api_search_query = ("https://api.pushshift.io/reddit/search/submission/?subreddit={}&after={}&before={}"
+                        "&sort_type=created_utc&fields=subreddit_subscribers,created_utc&size=750")
 
     # Get the data from Pushshift as JSON. We try to get a submission
     # per day and record the subscribers.
-    for day in list_of_days_to_get:  # Iterate over each day.
-        start_time = date_convert_to_unix(day)
-        end_time = start_time + 86399
+    list_chunked = [list_of_days_to_get[i:i + chunk_size] for i in range(0, len(list_of_days_to_get), chunk_size)]
 
-        # Access the Pushshift API for this day. If we weren't able to
-        # get any data for this day, skip the day.
+    # Iterate over our chunks of days.
+    for chunk in list_chunked:
+        processed_days = []
+
+        # Set time variables.
+        first_day = chunk[0]
+        start_time = date_convert_to_unix(first_day)
+        last_day = chunk[-1]
+        end_time = date_convert_to_unix(last_day) + 86399
+
+        # Access Pushshift for the data.
         retrieved_data = subreddit_pushshift_access(api_search_query.format(subreddit_name,
                                                                             start_time, end_time))
         if 'data' not in retrieved_data:
             continue
         else:
-            returned_submission = retrieved_data['data']
+            returned_data = retrieved_data['data']
 
-        # Make sure we actually have data for this day. If we do, then
-        # add the data to our dictionary.
-        if len(returned_submission) > 0:
-            if 'subreddit_subscribers' in returned_submission[0]:
-                subscribers = returned_submission[0]['subreddit_subscribers']
-                subscribers_dictionary[day] = int(subscribers)
-                logger.debug("Subscribers PS: Data for {}: {} subscribers.".format(day,
-                                                                                   subscribers))
+        # Process the days in our chunk and get the earliest matching
+        # submission's subscriber count for each day.
+        for day in chunk:
+            for unit in returned_data:
+                unit_day = date_convert_to_string(int(unit['created_utc']))
+                if unit_day not in processed_days and day == unit_day:
+                    subscribers = int(unit['subreddit_subscribers'])
+                    subscribers_dictionary[unit_day] = subscribers
+                    processed_days.append(unit_day)
+                    logger.debug("Subscribers PS: Data for {}: {} subscribers.".format(unit_day, subscribers))
+
+        # Check to see if all the days are accounted for in our chunk.
+        # If there are missing days, we pull a manual check for those.
+        # This check involves getting just a single submission from the
+        # day, usually the earliest one.
+        processed_days.sort()
+        if processed_days != chunk:
+            missing_days = [x for x in chunk if x not in processed_days]
+            logger.debug("Subscribers PS: Still missing data for {}. Retrieving individually.".format(missing_days))
+            for day in missing_days:
+                day_start = date_convert_to_unix(day)
+                day_end = day_start + 86399
+                day_query = ("https://api.pushshift.io/reddit/search/submission/?subreddit={}"
+                             "&after={}&before={}&sort_type=created_utc&size=1")
+                day_data = subreddit_pushshift_access(day_query.format(subreddit_name, day_start, day_end))
+
+                if 'data' not in day_data:
+                    continue
+                else:
+                    returned_submission = day_data['data']
+
+                # We have data here, so let's add it to the dictionary.
+                if len(returned_submission) > 0:
+                    if 'subreddit_subscribers' in returned_submission[0]:
+                        subscribers = returned_submission[0]['subreddit_subscribers']
+                        subscribers_dictionary[day] = int(subscribers)
+                        logger.debug("Subscribers PS: Data for {}: {} subscribers.".format(day, subscribers))
 
     # If we have data we can save it and insert it into the database.
     if len(subscribers_dictionary.keys()) != 0:
@@ -3595,12 +3644,14 @@ def wikipage_compare_bots():
 
 def wikipage_get_all_actions():
     """This function sums up all the actions cumulatively that Artemis
-    has ever done.
+    has ever done. Note that this needs to grab all rows except for the
+    one with `all`, as that is a special row containing a dictionary of
+    aggregate day-indexed actions instead.
 
     :return: A Markdown table detailing all those actions.
     """
     formatted_lines = []
-    CURSOR_DATA.execute('SELECT * FROM subreddit_actions')
+    CURSOR_DATA.execute('SELECT * FROM subreddit_actions WHERE subreddit != ?', ('all',))
     results = CURSOR_DATA.fetchall()
 
     # Get a list of the action keys, and then create a dictionary with
@@ -3809,7 +3860,7 @@ def widget_status_updater(index_num, list_amount, current_day, start_time):
     """A quick function that takes the number of the current place
     Artemis is working through a statistics cycle and updates a widget
     on r/AssistantBOT. In-progress widget updates are given an
-    orange background.
+    orange background. It also calls `widget_operational_status_updater`
 
     :param index_num: Artemis's current index in the cycle.
     :param list_amount: The total number of subreddits in the cycle.
@@ -3847,7 +3898,35 @@ def widget_status_updater(index_num, list_amount, current_day, start_time):
                                                   'headerColor': '#222222'})
     logger.debug("Widget Status Updater: Widget updated at {:.2%} completion.".format(percentage))
 
+    # Call the operational status updater.
+    widget_operational_status_updater()
+
     return
+
+
+def widget_operational_status_updater():
+    """Widget that updates on r/AssistantBOT with the current time."""
+    # Format according to ISO 8601. https://www.w3.org/TR/NOTE-datetime
+    current_time = datetime.datetime.fromtimestamp(time.time(),
+                                                   tz=datetime.timezone.utc).isoformat()[:19]
+    current_time += 'Z'
+
+    # Get the operational status widget.
+    operational_id = 'widget_142uuvol5mzqi'
+    operational_widget = None
+    for widget in reddit.subreddit(USERNAME).widgets.sidebar:
+        if isinstance(widget, praw.models.TextArea):
+            if widget.id == operational_id:
+                operational_widget = widget
+                break
+
+    # Update the widget with the current time.
+    if operational_widget is not None:
+        operational_status = '# ✅ {}'.format(current_time)
+        operational_widget.mod.update(text=operational_status)
+        return True
+    else:
+        return False
 
 
 def widget_comparison_updater():
@@ -3878,30 +3957,6 @@ def widget_comparison_updater():
         logger.debug("Widget Comparison Updater: Widget updated.")
 
     return
-
-
-def widget_operational_status_updater():
-    """Widget that updates on r/AssistantBOT with the current time."""
-    # Format according to ISO 8601. https://www.w3.org/TR/NOTE-datetime
-    current_time = datetime.datetime.fromtimestamp(time.time(), tz=datetime.timezone.utc).isoformat()[:19]
-    current_time += 'Z'
-
-    # Get the operational status widget.
-    operational_id = 'widget_142uuvol5mzqi'
-    operational_widget = None
-    for widget in reddit.subreddit(USERNAME).widgets.sidebar:
-        if isinstance(widget, praw.models.TextArea):
-            if widget.id == operational_id:
-                operational_widget = widget
-                break
-
-    # Update the widget with the current time.
-    if operational_widget is not None:
-        operational_status = '# ✅ {}'.format(current_time)
-        operational_widget.mod.update(text=operational_status)
-        return True
-    else:
-        return False
 
 
 """FLAIR ENFORCING FUNCTIONS"""
@@ -4519,6 +4574,31 @@ def main_counter_updater(subreddit_name, action_type, action_count=1):
         CURSOR_DATA.execute(update_command, (str(actions_dictionary), subreddit_name))
         CONN_DATA.commit()
 
+    # Also save the data to the master actions dictionary.
+    # That dictionary is classified under `all`.
+    # This is a dictionary that indexes all actions done, per day.
+    CURSOR_DATA.execute('SELECT * FROM subreddit_actions WHERE subreddit = ?', ('all',))
+    result = CURSOR_DATA.fetchone()
+
+    if result is not None:
+        master_actions = ast.literal_eval(result[1])
+        current_day = date_convert_to_string(time.time())
+
+        # Add the action to the daily count.
+        if current_day not in master_actions:
+            master_actions[current_day] = {action_type: action_count}
+        else:
+            saved_day_actions = master_actions[current_day]
+            if action_type in saved_day_actions:
+                master_actions[current_day][action_type] += action_count
+            else:
+                master_actions[current_day][action_type] = action_count
+
+        # Update the master actions data.
+        update_command = "UPDATE subreddit_actions SET recorded_actions = ? WHERE subreddit = ?"
+        CURSOR_DATA.execute(update_command, (str(master_actions), 'all'))
+        CONN_DATA.commit()
+
     return
 
 
@@ -4754,8 +4834,9 @@ def main_timer(manual_start=False):
     else:
         all_stats_done = False
 
-    # Update the operation status widget at the start of the hour.
-    if current_minute <= 5:
+    # Update the operation status widget at the start of the hour
+    # and every half-hour. This is done before any exits.
+    if 0 <= current_minute <= 5 or 30 <= current_minute <= 35:
         widget_operational_status_updater()
 
     # If we are outside the update window, exit. Otherwise, if a manual
@@ -4787,7 +4868,7 @@ def main_timer(manual_start=False):
     # This is mostly in case of a crash during the statistics-gathering
     # period, so the bot can start where it left off.
     # This should *not* run the first time, because both the cache and
-    # `UPDATER_DICTIONARY` should be len() == 0.
+    # `UPDATER_DICTIONARY` should have a length of zero.
     CURSOR_DATA.execute("SELECT * FROM cache_statistics WHERE date = ?", (current_date_string,))
     results = CURSOR_DATA.fetchall()
 
@@ -4797,6 +4878,7 @@ def main_timer(manual_start=False):
     # finally update the dictionary with the existing values.
     # This is only used when the bot is recovering the cycle from a
     # crash since there will not be cached data under normal times.
+    # `results` would be the cached data.
     if len(results) != 0:
         existing_updater_dict = {}
         for result in results:
@@ -4837,7 +4919,8 @@ def main_timer(manual_start=False):
                                             kwargs=dict(subreddit_list=userflair_check_list))
         userflair_thread.start()
 
-    # Update the status widget's initial position.
+    # Update the status widget's initial position. It is given a value
+    # instead of zero in order to avoid an error dividing by zero.
     widget_status_updater(.2, len(monitored_list), current_date_string, start_time)
 
     # This is the main part of gathering statistics.
@@ -4897,7 +4980,7 @@ def main_timer(manual_start=False):
             # system from within itself.
             logger.info('Main Timer: Fetching submissions...')
             if not manual_start:
-                main_messaging(check_for_invites=False)
+                main_messaging(regular_cycle=False)
             main_get_submissions()
             main_flair_checker()
 
@@ -5448,7 +5531,7 @@ def main_post_approval(submission, template_id=None):
     return True
 
 
-def main_messaging(check_for_invites=True):
+def main_messaging(regular_cycle=True):
     """The basic function for checking for moderator invites to a
     subreddit, and accepting them. This function also accepts enabling
     or disabling flair enforcing if Artemis gets a message with either
@@ -5458,13 +5541,13 @@ def main_messaging(check_for_invites=True):
     There is also a function that removes the SUBREDDIT from being
     monitored when de-modded.
 
-    :param check_for_invites: A Boolean determining whether Artemis
-                              should check for moderator invites. This
-                              is set to `False` when running this
-                              process within the `main_timer` routine,
-                              in order to avoid having to intialize a
-                              subreddit in the middle of a statistics
-                              gathering cycle.
+    :param regular_cycle: A Boolean determining whether Artemis is
+                          running on the regular cycle. This
+                          is set to `False` when running this
+                          process within the `main_timer` routine,
+                          which effectively makes it so that the
+                          function will only process 1 mod invite at
+                          a time.
     :return: `None`.
     """
     # Get the unread messages from the inbox and process with oldest
@@ -5472,6 +5555,12 @@ def main_messaging(check_for_invites=True):
     messages = list(reddit.inbox.unread(limit=None))
     messages.reverse()
     mod_invite_counter = 0
+
+    # Adjust the max number of mod invites to process in one cycle.
+    if regular_cycle:
+        mod_invite_limit = 3
+    else:
+        mod_invite_limit = 1
 
     # Iterate over the inbox, marking messages as read along the way.
     for message in messages:
@@ -5494,7 +5583,7 @@ def main_messaging(check_for_invites=True):
             # with full context of the comment.
             cmt_permalink = message.context[:-1] + "10000"
             if message.fullname.startswith('t1_') and msg_author != CREATOR:
-                # Make sure my creator isn't also tagged.
+                # Make sure my creator isn't also tagged in the comment.
                 if 'u/{}'.format(CREATOR) not in message.body:
                     body_format = message.body.replace('\n', '\n> ')
                     message_content = "**[Link]({})**\n\n> ".format(cmt_permalink) + body_format
@@ -5504,7 +5593,8 @@ def main_messaging(check_for_invites=True):
                                  ' comment to my creator.')
 
                     # Save the comment that was a mention, by converting
-                    # it into a PRAW object.
+                    # it into a PRAW object. This prevents it from being
+                    # forwarded again when mentions are searched daily.
                     mention_comment = reddit.comment(id=message.fullname[3:])
                     mention_comment.save()
             else:
@@ -5598,8 +5688,8 @@ def main_messaging(check_for_invites=True):
         # multiple invites if there are a bunch at the same time.
         # If the counter is reached, Artemis will process it again
         # later so that it can also get to other things first.
-        if 'invitation to moderate' in msg_subject and mod_invite_counter <= 3:
-
+        if 'invitation to moderate' in msg_subject and mod_invite_counter <= mod_invite_limit:
+            '''
             if not check_for_invites:
                 message.mark_unread()
                 logger.info("Messaging: r/{} invite detected but deferred.".format(new_subreddit))
@@ -5616,7 +5706,7 @@ def main_messaging(check_for_invites=True):
                         defer = 'Messaging: Replied to r/{} with a DEFERRAL hold message.'
                         logger.info(defer.format(new_subreddit))
                 continue
-
+            '''
             # Note the invitation to moderate.
             logger.info("Messaging: New moderation invite from r/{}.".format(msg_subreddit))
 
@@ -5774,10 +5864,11 @@ def main_messaging(check_for_invites=True):
                 if msg_subreddit.subreddit_type in ['public', 'restricted']:
                     log_comment = log_entry.reply(info)
                     log_comment.mod.distinguish(how='yes', sticky=True)
-        elif 'invitation to moderate' in msg_subject and mod_invite_counter > 3:
+                    log_comment.mod.lock()
+        elif 'invitation to moderate' in msg_subject and mod_invite_counter > mod_invite_limit:
             message.mark_unread()
             logger.info("Messaging: r/{} invite detected "
-                        "but mod counter reached.".format(new_subreddit))
+                        "but mod invite limit reached.".format(new_subreddit))
 
         # Takeout, or exporting data, is located here in order to allow
         # for subreddits that formerly used Artemis to gain access to
@@ -6027,10 +6118,10 @@ def main_get_posts_frequency():
     boundary_posts = int(time_interval / interval_between_posts)
 
     # Next we determine how many posts Artemis should *fetch* in a 15
-    # minute period defined by the data. That number is 1.5 times the
+    # minute period defined by the data. That number is 2 times the
     # earlier number in order to account for overlap.
     if boundary_posts < POSTS_BROADER_LIMIT:
-        NUMBER_TO_FETCH = int(boundary_posts * 1.5)
+        NUMBER_TO_FETCH = int(boundary_posts * 2)
     else:
         NUMBER_TO_FETCH = POSTS_BROADER_LIMIT
 
@@ -6308,7 +6399,7 @@ command line. The modes are:
     * `start` - fetch specific information for a random selection of,
                 or a single unmonitored subreddit.
     * `test`  - generate statistics pages for a random selection of,
-                or a single monitored subreddits.
+                or a single monitored subreddit.
 """
 if len(sys.argv) > 1:
     REGULAR_MODE = False
@@ -6316,6 +6407,7 @@ if len(sys.argv) > 1:
     specific_mode = sys.argv[1].strip().lower()
 
     if specific_mode == 'start':  # We want to fetch specific information for a sub.
+        # noinspection PyUnboundLocalVariable
         logger.info("LOCAL MODE: Launching Artemis in 'start' mode.")
         l_mode = input("\n====\n\nEnter 'random', name of a new sub, or 'x' to exit: ")
         l_mode = l_mode.lower().strip()
@@ -6328,18 +6420,24 @@ if len(sys.argv) > 1:
             random_subs = []
             num_initialize = int(input('\nEnter the number of random subreddits to initialize: '))
             for _ in range(num_initialize):
+                # noinspection PyUnboundLocalVariable
                 random_subs.append(reddit.random_subreddit().display_name.lower())
+            random_subs.sort()
             print("\n\n### Now testing: r/{}.\n".format(', r/'.join(random_subs)))
 
+            init_times = []
             for test_sub in random_subs:
-                print("\n\n### Initializing data for r/{}...".format(test_sub))
+                print("\n\n### Initializing data for r/{}...\n".format(test_sub))
                 starting = time.time()
                 main_initialization(test_sub, create_wiki=False)
                 generated_text = wikipage_collater(test_sub)
                 elapsed = (time.time() - starting) / 60
+                init_times.append(elapsed)
                 print("\n\n# r/{} data ({:.2f} mins):\n\n{}\n\n---".format(test_sub, elapsed,
                                                                            generated_text))
-            print('\n\n### All {} initialization tests complete.'.format(num_initialize))
+            print('\n\n### All {} initialization tests complete. '
+                  'Average initialization time: {:.2f} mins'.format(num_initialize,
+                                                                    sum(init_times) / len(init_times)))
         else:
             # Initialize the data for the sub.
             logger.info('Manually intializing data for r/{}.'.format(l_mode))
@@ -6357,6 +6455,7 @@ if len(sys.argv) > 1:
     elif specific_mode == "test":
         # This runs the wikipage generator through randomly selected
         # subreddits that have already saved data.
+        # noinspection PyUnboundLocalVariable
         logger.info("LOCAL MODE: Launching Artemis in 'test' mode.")
         l_mode = input("\n====\n\nEnter 'random', name of a sub, or 'x' to exit: ").lower().strip()
 
@@ -6366,23 +6465,31 @@ if len(sys.argv) > 1:
         elif l_mode == 'random':
             # Next we fetch all the subreddits we monitor and ask for
             # the number to test.
-            number_to_test = int(input("\nEnter the number of tests to make: "))
+            number_to_test = int(input("\nEnter the number of tests to conduct: "))
             random_subs = random.sample(database_monitored_subreddits_retrieve(), number_to_test)
+            random_subs.sort()
+            print("\n\n### Now testing: r/{}.\n".format(', r/'.join(random_subs)))
 
             # Now we begin to test the collation by running the
             # function, making sure there are no errors.
+            init_times = []
             for test_sub in random_subs:
                 time_initialize_start = time.time()
                 print("\n---\n\n> Testing r/{}...\n".format(test_sub))
 
                 # If the length of the generated text is longer than a
                 # certain amount, then it's passed.
-                if len(wikipage_collater(test_sub)) > 1000:
+                tested_data = wikipage_collater(test_sub)
+                if len(tested_data) > 1000:
                     total_time = time.time() - time_initialize_start
                     print("> Test complete for r/{} in {:.2f} seconds.\n".format(test_sub,
                                                                                  total_time))
-            print('\n\n# All {} wikipage collater tests complete.'.format(number_to_test))
+                    init_times.append(total_time)
+            print('\n\n# All {} wikipage collater tests complete. '
+                  'Average initialization time: {:.2f} secs'.format(number_to_test,
+                                                                    sum(init_times) / len(init_times)))
         else:
+            logger.info('Testing data for r/{}.'.format(l_mode))
             print(wikipage_collater(l_mode))
     else:
         REGULAR_MODE = True
