@@ -43,7 +43,7 @@ from _text import *
 
 """INITIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "1.7.6 Hazel"
+VERSION_NUMBER = "1.7.7 Hazel"
 
 # Define the location of the main files Artemis uses.
 # They should all be in the same folder as the Python script itself.
@@ -3588,10 +3588,13 @@ def wikipage_compare_bots():
     formatted_lines = []
 
     # Access the moderated subreddits for each bot in JSON data and
-    # count how many subreddits are there.
+    # count how many subreddits are there. We also make sure to omit
+    # any user profiles, which begin with "u_"
     for username in bot_list:
         my_data = subreddit_public_moderated(username)
-        bot_dictionary[username] = (my_data['total'], my_data['list'])
+        my_list = my_data['list']
+        my_list = [x for x in my_list if not x.startswith("u_")]
+        bot_dictionary[username] = (len(my_list), my_list)
 
     # Access the moderated subreddits for those in TheSentinelBot
     # network and combine them together in one entry.
@@ -3604,6 +3607,7 @@ def wikipage_compare_bots():
     sentinel_mod_list = []
     for instance in sentinel_list:
         my_list = subreddit_public_moderated(instance)['list']
+        my_list = [x for x in my_list if not x.startswith("u_")]
         sentinel_mod_list += my_list
 
     # Remove duplicate subreddits on this list.
@@ -4157,7 +4161,7 @@ def messaging_send_creator(subreddit_name, subject_type, message):
     """
     # This is a dictionary that defines what the subject line will be
     # based on the action. The add portion is currently unused.
-    subject_dict = {"add": 'Added new subreddit: r/{}',
+    subject_dict = {"add": 'Added former subreddit: r/{}',
                     "remove": "Demodded from subreddit: r/{}",
                     "skip": "Skipped subreddit: r/{}",
                     "mention": "New item mentioning Artemis on r/{}"
@@ -4492,7 +4496,7 @@ def main_error_log_(entry):
 # noinspection PyGlobalUndefined,PyGlobalUndefined
 def main_config_retriever():
     """This function retrieves data from a configuration page in order
-    to help prevent abuse of Artemis. It also gets a chunk of text if
+    to get certain runtime variables. It also gets a chunk of text if
     present to serve as an announcement to be included on wikipages.
     For more on YAML syntax, please see:
     https://learn.getgrav.org/16/advanced/yaml
@@ -4746,7 +4750,6 @@ def main_maintenance_secondary():
     :return: `None`.
     """
     # Refresh the configuration data.
-    main_config_retriever()
     main_get_posts_frequency()
 
     # Check if there are any mentions and mark all modmail as read.
@@ -4857,8 +4860,11 @@ def main_timer(manual_start=False):
     # Get the list of all our monitored subreddits.
     # Check integrity first, make sure the subs to update are accurate.
     # This is done by comparing the local list to the online list.
+    # Also refresh the configuration data.
+                                                        
     database_monitored_integrity_checker()
     monitored_list = database_monitored_subreddits_retrieve()
+    main_config_retriever()
 
     # Start the first timer. This will be reset each cycle later.
     cycle_initialize_time = int(time.time())
@@ -5730,6 +5736,14 @@ def main_messaging(regular_cycle=True):
                                        "View it at r/{}.".format(new_subreddit))
                 continue
 
+            # Check if it's a user profile subreddit, that begins with
+            # the prefix "u_". Since these don't have post flairs,
+            # it's pointless to moderate them.
+            if new_subreddit.startswith("u_"):
+                logger.info("Messaging: > Invite to user profile subreddit. Not acceptable.")
+                message.reply(MSG_MOD_INIT_PROFILE)
+                continue
+
             # Actually accept the invitation to moderate.
             # There is an escape here in case the invite is already
             # accepted for some reason. For example, the subreddit may
@@ -5834,9 +5848,10 @@ def main_messaging(regular_cycle=True):
                                                               nsfw=msg_subreddit.over18)
             except praw.exceptions.APIException:
                 # This link was already submitted to my profile before.
-                # Set `log_entry` to `None`.
+                # Set `log_entry` to `None`. Send message to creator.
                 logger.info('Messaging: r/{} has already been added before.'.format(new_subreddit))
                 log_entry = None
+                messaging_send_creator(new_subreddit, 'add', "View it at r/{}.".format(new_subreddit))
             else:
                 # If the log submission is successful, lock this log
                 # entry so comments can't be made on it.
@@ -6034,7 +6049,7 @@ def main_messaging(regular_cycle=True):
             logger.info("Messaging: > Sent demod confirmation reply to moderators.")
 
             # Notify my creator about it.
-            creator_msg = ("[What?](https://media.giphy.com/media/GXWJTMP8ZhHKE/giphy.gifv)"
+            creator_msg = ("[Oh well.](https://media.giphy.com/media/GXWJTMP8ZhHKE/giphy.gifv)"
                            '\n\n* **r/{}**'.format(new_subreddit))
             subject_line = 'Demodded from subreddit: r/{}'.format(new_subreddit)
             reddit.redditor(CREATOR).message(subject=subject_line,
@@ -6389,6 +6404,113 @@ def main_get_submissions():
     return
 
 
+'''TESTING / EXTERNAL FUNCTIONS'''
+
+
+def external_random_test(query):
+    """ Fetch initialization information for a random selection of
+    non-local subeddits.
+    """
+    if query == 'random':
+        # Choose a number of random subreddits to test.
+        random_subs = []
+        num_initialize = int(input('\nEnter the number of random subreddits to initialize: '))
+        for _ in range(num_initialize):
+            # noinspection PyUnboundLocalVariable
+            random_subs.append(reddit.random_subreddit().display_name.lower())
+        random_subs.sort()
+        print("\n\n### Now testing: r/{}.\n".format(', r/'.join(random_subs)))
+
+        init_times = []
+        for test_sub in random_subs:
+            print("\n\n### Initializing data for r/{}...\n".format(test_sub))
+            starting = time.time()
+            main_initialization(test_sub, create_wiki=False)
+            generated_text = wikipage_collater(test_sub)
+            elapsed = (time.time() - starting) / 60
+            init_times.append(elapsed)
+            print("\n\n# r/{} data ({:.2f} mins):\n\n{}\n\n---".format(test_sub, elapsed,
+                                                                       generated_text))
+        print('\n\n### All {} initialization tests complete. '
+              'Average initialization time: {:.2f} mins'.format(num_initialize,
+                                                                sum(init_times) / len(init_times)))
+    else:
+        # Initialize the data for the sub.
+        logger.info('Manually intializing data for r/{}.'.format(query))
+        time_initialize_start = time.time()
+        main_initialization(query, create_wiki=False)
+        initialized = (time.time() - time_initialize_start)
+        print("\n---\n\nInitialization time: {:.2f} minutes".format(initialized / 60))
+
+        # Generate and print the collated data just as the wiki page
+        # would look like.
+        print(wikipage_collater(query))
+        elapsed = (time.time() - time_initialize_start)
+        print("\nTotal elapsed time: {:.2f} minutes".format(elapsed / 60))
+
+    return
+
+
+def external_local_test(query):
+    """Fetch initialization information for a random selection of
+    locally stored subeddits.
+    """
+
+    # Fetch all the subreddits we monitor and ask for
+    # the number to test.
+    number_to_test = int(input("\nEnter the number of tests to conduct: "))
+    random_subs = random.sample(database_monitored_subreddits_retrieve(), number_to_test)
+    random_subs.sort()
+    print("\n\n### Now testing: r/{}.\n".format(', r/'.join(random_subs)))
+
+    # Now begin to test the collation by running the
+    # function, making sure there are no errors.
+    if query == 'random':
+        init_times = []
+        for test_sub in random_subs:
+            time_initialize_start = time.time()
+            print("\n---\n\n> Testing r/{}...\n".format(test_sub))
+
+            # If the length of the generated text is longer than a
+            # certain amount, then it's passed.
+            tested_data = wikipage_collater(test_sub)
+            if len(tested_data) > 1000:
+                total_time = time.time() - time_initialize_start
+                print("> Test complete for r/{} in {:.2f} seconds.\n".format(test_sub,
+                                                                             total_time))
+                init_times.append(total_time)
+        print('\n\n# All {} wikipage collater tests complete. '
+              'Average initialization time: {:.2f} secs'.format(number_to_test,
+                                                                sum(init_times) / len(init_times)))
+    else:
+        logger.info('Testing data for r/{}.'.format(query))
+        print(wikipage_collater(query))
+
+    return
+
+
+def external_mail_alert():
+    """ Function to mail moderators of subreddits that use the flair
+    enforcement function to let them know about downtime or any other
+    such issues. To be rarely used.
+    """
+    flair_enforced_subreddits = database_monitored_subreddits_retrieve(True)
+    flair_enforced_subreddits.sort()
+
+    # Retrieve the message to send.
+    subject = input("\nPlease enter the subject of the message: ").strip()
+    subject = '[Artemis Alert] {}'.format(subject)
+    message = input("\nPlease enter the message you wish to send "
+                    "to {} subreddits: ".format(len(flair_enforced_subreddits))).strip()
+
+    # Send the message to moderators.
+    for subreddit in flair_enforced_subreddits:
+        reddit.subreddit(subreddit).message(subject, message)
+        logger.info('External Mail: Sent a message to the moderators of r/{}.'.format(subreddit))
+
+    return
+
+
 '''RUNNING THE BOT'''
 main_login()
 
@@ -6400,6 +6522,11 @@ command line. The modes are:
                 or a single unmonitored subreddit.
     * `test`  - generate statistics pages for a random selection of,
                 or a single monitored subreddit.
+                
+There's also one supplementary function to use:
+
+    * `alert` - send an alert in the form of a message to subreddits
+                that use Artemis's flair enforcement.
 """
 if len(sys.argv) > 1:
     REGULAR_MODE = False
@@ -6415,43 +6542,8 @@ if len(sys.argv) > 1:
         # Exit the routine if the value is x.
         if l_mode == 'x':
             sys.exit()
-        elif l_mode == 'random':
-            # Choose a number of random subreddits to test.
-            random_subs = []
-            num_initialize = int(input('\nEnter the number of random subreddits to initialize: '))
-            for _ in range(num_initialize):
-                # noinspection PyUnboundLocalVariable
-                random_subs.append(reddit.random_subreddit().display_name.lower())
-            random_subs.sort()
-            print("\n\n### Now testing: r/{}.\n".format(', r/'.join(random_subs)))
-
-            init_times = []
-            for test_sub in random_subs:
-                print("\n\n### Initializing data for r/{}...\n".format(test_sub))
-                starting = time.time()
-                main_initialization(test_sub, create_wiki=False)
-                generated_text = wikipage_collater(test_sub)
-                elapsed = (time.time() - starting) / 60
-                init_times.append(elapsed)
-                print("\n\n# r/{} data ({:.2f} mins):\n\n{}\n\n---".format(test_sub, elapsed,
-                                                                           generated_text))
-            print('\n\n### All {} initialization tests complete. '
-                  'Average initialization time: {:.2f} mins'.format(num_initialize,
-                                                                    sum(init_times) / len(init_times)))
         else:
-            # Initialize the data for the sub.
-            logger.info('Manually intializing data for r/{}.'.format(l_mode))
-            time_initialize_start = time.time()
-            main_initialization(l_mode, create_wiki=False)
-            initialized = (time.time() - time_initialize_start)
-            print("\n---\n\nInitialization time: {:.2f} minutes".format(initialized / 60))
-
-            # Generate and print the collated data just as the wiki page
-            # would look like.
-            print(wikipage_collater(l_mode))
-            elapsed = (time.time() - time_initialize_start)
-            print("\nTotal elapsed time: {:.2f} minutes".format(elapsed / 60))
-
+            external_random_test(l_mode)
     elif specific_mode == "test":
         # This runs the wikipage generator through randomly selected
         # subreddits that have already saved data.
@@ -6462,35 +6554,12 @@ if len(sys.argv) > 1:
         # Exit the routine if the value is x.
         if l_mode == 'x':
             sys.exit()
-        elif l_mode == 'random':
-            # Next we fetch all the subreddits we monitor and ask for
-            # the number to test.
-            number_to_test = int(input("\nEnter the number of tests to conduct: "))
-            random_subs = random.sample(database_monitored_subreddits_retrieve(), number_to_test)
-            random_subs.sort()
-            print("\n\n### Now testing: r/{}.\n".format(', r/'.join(random_subs)))
-
-            # Now we begin to test the collation by running the
-            # function, making sure there are no errors.
-            init_times = []
-            for test_sub in random_subs:
-                time_initialize_start = time.time()
-                print("\n---\n\n> Testing r/{}...\n".format(test_sub))
-
-                # If the length of the generated text is longer than a
-                # certain amount, then it's passed.
-                tested_data = wikipage_collater(test_sub)
-                if len(tested_data) > 1000:
-                    total_time = time.time() - time_initialize_start
-                    print("> Test complete for r/{} in {:.2f} seconds.\n".format(test_sub,
-                                                                                 total_time))
-                    init_times.append(total_time)
-            print('\n\n# All {} wikipage collater tests complete. '
-                  'Average initialization time: {:.2f} secs'.format(number_to_test,
-                                                                    sum(init_times) / len(init_times)))
         else:
-            logger.info('Testing data for r/{}.'.format(l_mode))
-            print(wikipage_collater(l_mode))
+            external_local_test(l_mode)
+    elif specific_mode == 'alert':
+        # noinspection PyUnboundLocalVariable
+        logger.info("LOCAL MODE: Launching Artemis in 'alert' mode.")
+        external_mail_alert()
     else:
         REGULAR_MODE = True
 else:
