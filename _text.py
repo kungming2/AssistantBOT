@@ -47,6 +47,13 @@ About+Artemis+%28From+r%2F{0}%29) u/kungming2 if you have any questions.
 
 Have a good day!
 """
+MSG_MOD_INIT_PROFILE = """
+👤 This moderation invite appears to be for a redditor's user profile. Unfortunately user \
+profiles *do not* have [post flairs](https://www.reddithelp.com/en/categories/using-reddit/\
+profiles/profile-moderation-tools) and Artemis is therefore not usable on them.
+
+If this is in error, please comment on r/AssistantBOT with this subreddit's name. Thanks!
+"""
 MSG_MOD_INIT_MINIMUM = """
 ⏸️ This subreddit currently has fewer than {0} subscribers, so I've turned off statistics \
 gathering for now. I will automatically resume statistics gathering once it reaches that \
