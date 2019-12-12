@@ -1,6 +1,6 @@
 fuzzywuzzy
 pbwrap
-praw
+praw>=6.1.0
 prawcore
 python-Levenshtein
 pyyaml
