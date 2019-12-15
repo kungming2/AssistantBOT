@@ -28,6 +28,7 @@ import time
 import traceback
 import urllib.request
 from collections import OrderedDict
+from types import SimpleNamespace
 from urllib.error import HTTPError, URLError
 
 import praw
@@ -43,7 +44,7 @@ from _text import *
 
 """INITIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "1.7.7 Hazel"
+VERSION_NUMBER = "1.7.11 Hazel"
 
 # Define the location of the main files Artemis uses.
 # They should all be in the same folder as the Python script itself.
@@ -106,16 +107,10 @@ def load_logger():
 load_logger()
 
 # Retrieve credentials data needed to log in from the YAML file.
-ARTEMIS_INFO = load_information()
-USERNAME = ARTEMIS_INFO['username']
-CREATOR = ARTEMIS_INFO['creator']
+AUTH = SimpleNamespace(**load_information())
 
 # Number of seconds Artemis waits in between runs.
 WAIT = 30
-
-# This retrieves cloud and local folder paths that files are backed to.
-BACKUP_FOLDER = ARTEMIS_INFO['backup_folder']
-BACKUP_FOLDER_LOCAL = ARTEMIS_INFO['backup_folder_2']
 BOT_DISCLAIMER = ("\n\n---\n^Artemis: ^a ^moderation ^assistant ^for ^r/{0} ^| "
                   "[^Contact ^r/{0} ^mods](https://www.reddit.com/message/compose?to=%2Fr%2F{0}) "
                   "^| [^Bot ^Info/Support](https://www.reddit.com/r/AssistantBOT/)")
@@ -123,10 +118,6 @@ BOT_DISCLAIMER = ("\n\n---\n^Artemis: ^a ^moderation ^assistant ^for ^r/{0} ^| "
 # This connects Artemis with its main SQLite database file.
 CONN_DATA = sqlite3.connect(FILE_ADDRESS_DATA)
 CURSOR_DATA = CONN_DATA.cursor()
-
-# Pastebin authentication information.
-PASTEBIN_API_KEY = ARTEMIS_INFO['pastebin_api_key']
-PASTEBIN_PASSWORD = ARTEMIS_INFO['pastebin_password']
 
 # We don't want to log common connection errors.
 CONNECTION_ERRORS = ['500 HTTP', '502 HTTP', '503 HTTP', '504 HTTP', 'RequestException']
@@ -475,7 +466,7 @@ def database_monitored_integrity_checker():
     # Fetch the *live* list of moderated subreddits directly from
     # Reddit, including private ones. This needs to use the native
     # account.
-    mod_target = '/user/{}/moderated_subreddits'.format(USERNAME)
+    mod_target = '/user/{}/moderated_subreddits'.format(AUTH.username)
     active_subreddits = [x['sr'].lower() for x in reddit.get(mod_target)['data']]
 
     # Get only the subreddits that are recorded BUT not live.
@@ -1744,12 +1735,15 @@ def subreddit_subscribers_pushshift_historical_recorder(subreddit_name, fetch_to
         today_string = date_convert_to_string(time.time())
         list_of_days_to_get = [today_string]
 
-    api_search_query = ("https://api.pushshift.io/reddit/search/submission/?subreddit={}&after={}&before={}"
-                        "&sort_type=created_utc&fields=subreddit_subscribers,created_utc&size=750")
+    api_search_query = ("https://api.pushshift.io/reddit/search/submission/"
+                        "?subreddit={}&after={}&before={}&sort_type=created_utc"
+                        "&fields=subreddit_subscribers,created_utc&size=750")
 
     # Get the data from Pushshift as JSON. We try to get a submission
     # per day and record the subscribers.
-    list_chunked = [list_of_days_to_get[i:i + chunk_size] for i in range(0, len(list_of_days_to_get), chunk_size)]
+    list_chunked = [list_of_days_to_get[i:i + chunk_size] for i in range(0,
+                                                                         len(list_of_days_to_get),
+                                                                         chunk_size)]
 
     # Iterate over our chunks of days.
     for chunk in list_chunked:
@@ -1778,7 +1772,8 @@ def subreddit_subscribers_pushshift_historical_recorder(subreddit_name, fetch_to
                     subscribers = int(unit['subreddit_subscribers'])
                     subscribers_dictionary[unit_day] = subscribers
                     processed_days.append(unit_day)
-                    logger.debug("Subscribers PS: Data for {}: {} subscribers.".format(unit_day, subscribers))
+                    logger.debug("Subscribers PS: Data for {}: "
+                                 "{} subscribers.".format(unit_day, subscribers))
 
         # Check to see if all the days are accounted for in our chunk.
         # If there are missing days, we pull a manual check for those.
@@ -1787,13 +1782,15 @@ def subreddit_subscribers_pushshift_historical_recorder(subreddit_name, fetch_to
         processed_days.sort()
         if processed_days != chunk:
             missing_days = [x for x in chunk if x not in processed_days]
-            logger.debug("Subscribers PS: Still missing data for {}. Retrieving individually.".format(missing_days))
+            logger.debug("Subscribers PS: Still missing data for {}. "
+                         "Retrieving individually.".format(missing_days))
             for day in missing_days:
                 day_start = date_convert_to_unix(day)
                 day_end = day_start + 86399
                 day_query = ("https://api.pushshift.io/reddit/search/submission/?subreddit={}"
                              "&after={}&before={}&sort_type=created_utc&size=1")
-                day_data = subreddit_pushshift_access(day_query.format(subreddit_name, day_start, day_end))
+                day_data = subreddit_pushshift_access(day_query.format(subreddit_name, day_start,
+                                                                       day_end))
 
                 if 'data' not in day_data:
                     continue
@@ -1805,7 +1802,8 @@ def subreddit_subscribers_pushshift_historical_recorder(subreddit_name, fetch_to
                     if 'subreddit_subscribers' in returned_submission[0]:
                         subscribers = returned_submission[0]['subreddit_subscribers']
                         subscribers_dictionary[day] = int(subscribers)
-                        logger.debug("Subscribers PS: Data for {}: {} subscribers.".format(day, subscribers))
+                        logger.debug("Subscribers PS: Data for {}: "
+                                     "{} subscribers.".format(day, subscribers))
 
     # If we have data we can save it and insert it into the database.
     if len(subscribers_dictionary.keys()) != 0:
@@ -2799,7 +2797,7 @@ def subreddit_statistics_retrieve_all(subreddit_name):
 def subreddit_userflair_counter(subreddit_name):
     """This function if called on a subreddit with the `flair`
     permission, allows for Artemis to tally the popularity of
-    userflairs. It has two ways of running:
+    userflairs. It has two modes:
 
     The better supported one is for the new Reddit Emoji, while
     the other is for the old `css_class` of flairs.
@@ -2819,7 +2817,7 @@ def subreddit_userflair_counter(subreddit_name):
 
     # Check to see if emoji are actually used in user flairs on this
     # subreddit, even if the CSS class is set to blank this is okay.
-    flair_list = [x['css_class'] for x in list(reddit.subreddit(subreddit_name).flair.templates)]
+    flair_list = [x['css_class'] for x in list(relevant_sub.flair.templates)]
     flair_list = list(set(flair_list))
     num_userflair = len(flair_list)
 
@@ -3001,7 +2999,7 @@ def wikipage_creator(subreddit_name):
     :return: A PRAW Wikipage object of the statistics page.
     """
     # Define the wikipage title to edit or create.
-    page_name = "{}_statistics".format(USERNAME.lower())
+    page_name = "{}_statistics".format(AUTH.username.lower())
     r = reddit.subreddit(subreddit_name)
 
     # Check if the page is there by trying to get the text of the page.
@@ -3022,7 +3020,7 @@ def wikipage_creator(subreddit_name):
         # gathering will be paused due to the subscriber count being
         # below the minimum (`MINIMUM_SUBSCRIBERS`).
         try:
-            reason_msg = "Creating the u/{} statistics wiki page.".format(USERNAME)
+            reason_msg = "Creating the u/{} statistics wiki page.".format(AUTH.username)
             statistics_wikipage = r.wiki.create(name=page_name,
                                                 content=WIKIPAGE_BLANK.format(MINIMUM_SUBSCRIBERS),
                                                 reason=reason_msg)
@@ -3031,7 +3029,7 @@ def wikipage_creator(subreddit_name):
             # only let moderators see it. Also add Artemis as a approved
             # submitter/editor for the wiki.
             statistics_wikipage.mod.update(listed=False, permlevel=2)
-            statistics_wikipage.mod.add(USERNAME)
+            statistics_wikipage.mod.add(AUTH.username)
             logger.info("Wikipage Creator: Created new statistics "
                         "wiki page for r/{}.".format(subreddit_name))
         except prawcore.exceptions.NotFound:
@@ -3059,6 +3057,7 @@ def wikipage_collater(subreddit_name):
     :return: A full Markdown page that is the equivalent of the text in
              the `assistantbot_statistics` wikipage for that subreddit.
     """
+
     # Get the current status of the bot's operations.
     start_time = time.time()
     status = wikipage_status_collater(subreddit_name)
@@ -3093,7 +3092,7 @@ def wikipage_collater(subreddit_name):
     # Compile the entire page together.
     body = WIKIPAGE_TEMPLATE.format(subreddit_name, status, statistics_section,
                                     subscribers_section, traffic_section, VERSION_NUMBER,
-                                    time_elapsed, today, ANNOUNCEMENT, config_link)
+                                    time_elapsed, today, CONFIG.announcement, config_link)
     logger.debug("Wikipage Collater: Statistics page for r/{} collated.".format(subreddit_name))
 
     return body
@@ -3111,7 +3110,7 @@ def wikipage_config(subreddit_name):
              `False`, `None` if `True`.
     """
     # The wikipage title to edit or create.
-    page_name = "{}_config".format(USERNAME.lower())
+    page_name = "{}_config".format(AUTH.username.lower())
     r = reddit.subreddit(subreddit_name)
 
     # This is the max length (in characters) of the custom flair
@@ -3151,14 +3150,14 @@ def wikipage_config(subreddit_name):
         logger.debug('Wikipage Config: Config wikipage found, length {}.'.format(len(config_test)))
     except prawcore.exceptions.NotFound:
         # The page does *not* exist. Let's create the config page.
-        reason_msg = "Creating the {} config wiki page.".format(USERNAME)
+        reason_msg = "Creating the {} config wiki page.".format(AUTH.username)
         config_wikipage = r.wiki.create(name=page_name, content=page_template,
                                         reason=reason_msg)
 
         # Remove it from the public list and only let moderators see it.
         # Also add Artemis as a approved submitter/editor for the wiki.
         config_wikipage.mod.update(listed=False, permlevel=2)
-        config_wikipage.mod.add(USERNAME)
+        config_wikipage.mod.add(AUTH.username)
         logger.info("Wikipage Config: Created new config wiki "
                     "page for r/{}.".format(subreddit_name))
 
@@ -3295,7 +3294,7 @@ def wikipage_get_new_subreddits():
     # Iterate over the last few subreddits on the user page that are
     # recorded as having added the bot. Get only moderator invites
     # posts and skip other sorts of posts.
-    for result in reddit.subreddit('u_{}'.format(USERNAME)).new(limit=20):
+    for result in reddit_helper.subreddit('u_{}'.format(AUTH.username)).new(limit=20):
 
         if "Accepted mod invite" in result.title:
             # If the time is older than the last midnight, tell the sub
@@ -3447,21 +3446,21 @@ def wikipage_userflair_editor(subreddit_list):
             if userflair_section is not None:
                 logger.info('Wikipage Userflair Editor: Now updating '
                             'r/{} userflair statistics.'.format(community))
-                stats_page = reddit.subreddit(community).wiki["{}_statistics".format(USERNAME)]
-                stats_page_existing = stats_page.content_md
+                stat_page = reddit.subreddit(community).wiki["{}_statistics".format(AUTH.username)]
+                stat_page_existing = stat_page.content_md
 
                 # If there's no preexisting section for userflairs, add
                 # to the existing statistics. Otherwise, remove the old
                 # section and replace it.
-                if '## Userflairs' not in stats_page_existing:
-                    new_text = stats_page_existing + userflair_section
+                if '## Userflairs' not in stat_page_existing:
+                    new_text = stat_page_existing + userflair_section
                 else:
-                    stats_page_existing = stats_page_existing.split('## Userflairs')[0].strip()
-                    new_text = stats_page_existing + userflair_section
+                    stat_page_existing = stat_page_existing.split('## Userflairs')[0].strip()
+                    new_text = stat_page_existing + userflair_section
 
                 # Edit the actual page with the updated data.
-                stats_page.edit(content=new_text,
-                                reason='Updating with userflair data for {}.'.format(month))
+                stat_page.edit(content=new_text,
+                               reason='Updating with userflair data for {}.'.format(month))
 
     minutes_elapsed = round((time.time() - current_time) / 60, 2)
     logger.info('Wikipage Userflair Editor: Completed userflair update '
@@ -3572,6 +3571,42 @@ def wikipage_status_collater(subreddit_name):
     return status_chunk
 
 
+def wikipage_edit_history(action, data_package):
+    """Function to save a record of a removed subreddit to the wiki.
+
+    :param action: A string, one of `readd` or `remove`. `remove` means
+                   that the subreddit will be entered on this history
+                   page. `readd` means that the subreddit, if it exists
+                   should be cleared from this history.
+    :param data_package: A dictionary indexed with a subreddit's
+                         lowercase name and with the former extended
+                         data for it if the action is `remove`. If the
+                         action is `readd` then it will be a string.
+    """
+    # Access the history wikipage and load its data.
+    history_wikipage = reddit.subreddit('translatorbot').wiki['artemis_history']
+    history_data = yaml.safe_load(history_wikipage.content_md)
+
+    # Update the dictionary depending on the action.
+    if action == 'remove':
+        history_data.update(data_package)
+    elif action == 'readd':
+        if data_package in history_data:
+            del history_data[data_package]
+        else:  # This subreddit was never in the history.
+            return
+
+    # Format the YAML code with indents for readability and edit.
+    history_yaml = yaml.safe_dump(history_data)
+    history_yaml = "    " + history_yaml.replace('\n', '\n    ')
+    history_wikipage.edit(content=history_yaml,
+                          reason='Updating with action `{}`.'.format(action))
+    logger.info('Remove to History: Saved `{}`, '
+                'data `{}`, to history wikipage.'.format(action, data_package))
+
+    return
+
+
 def wikipage_compare_bots():
     """This function is very simple - it just looks at a few other bots
     and returns how many subreddits they each moderate, and as a
@@ -3582,8 +3617,8 @@ def wikipage_compare_bots():
     :return: A Markdown table comparing Artemis's number of moderated
              subreddits with others.
     """
-    bot_list = list(BOTS_COMPARED)
-    bot_list.append(USERNAME.lower())
+    bot_list = list(CONFIG.bots_comparative)
+    bot_list.append(AUTH.username.lower())
     bot_dictionary = {}
     formatted_lines = []
 
@@ -3617,7 +3652,7 @@ def wikipage_compare_bots():
 
     # Look at Artemis's modded subreddits and process through all the
     # data as well.
-    my_public_monitored = bot_dictionary[USERNAME.lower()][1]
+    my_public_monitored = bot_dictionary[AUTH.username.lower()][1]
     header = ("\n\n### Comparative Data\n\n"
               "| Bot | # Subreddits (Public) | Percentage | # Overlap |\n"
               "|-----|-----------------------|------------|-----------|\n")
@@ -3628,8 +3663,8 @@ def wikipage_compare_bots():
         list_subs = bot_dictionary[username][1]
 
         # Format the entries appropriately.
-        if username != USERNAME.lower():
-            percentage = num_subs / bot_dictionary[USERNAME.lower()][0]
+        if username != AUTH.username.lower():
+            percentage = num_subs / bot_dictionary[AUTH.username.lower()][0]
 
             # Also calculate the number of subreddits that overlap.
             overlap = [value for value in my_public_monitored if value in list_subs]
@@ -3790,7 +3825,7 @@ def widget_updater(action_data):
     :return: `None`, but widgets are edited.
     """
     # Get the list of public subreddits that are moderated.
-    subreddit_list = subreddit_public_moderated(USERNAME)['list']
+    subreddit_list = subreddit_public_moderated(AUTH.username)['list']
 
     # Search for the relevant status and table widgets for editing.
     status_id = 'widget_13xm3fwr0w9mu'
@@ -3801,7 +3836,7 @@ def widget_updater(action_data):
     action_widget = None
 
     # Assign the widgets to our variables.
-    for widget in reddit.subreddit(USERNAME).widgets.sidebar:
+    for widget in reddit.subreddit(AUTH.username).widgets.sidebar:
         if isinstance(widget, praw.models.TextArea):
             if widget.id == status_id:
                 status_widget = widget
@@ -3875,7 +3910,7 @@ def widget_status_updater(index_num, list_amount, current_day, start_time):
     # Get the status widget.
     status_id = 'widget_13xm3fwr0w9mu'
     status_widget = None
-    for widget in reddit.subreddit(USERNAME).widgets.sidebar:
+    for widget in reddit.subreddit(AUTH.username).widgets.sidebar:
         if isinstance(widget, praw.models.TextArea):
             if widget.id == status_id:
                 status_widget = widget
@@ -3909,16 +3944,20 @@ def widget_status_updater(index_num, list_amount, current_day, start_time):
 
 
 def widget_operational_status_updater():
-    """Widget that updates on r/AssistantBOT with the current time."""
-    # Format according to ISO 8601. https://www.w3.org/TR/NOTE-datetime
+    """Widget that updates on r/AssistantBOT with the current time.
+    This basically tells us that the bot is active with the time being
+    formatted according to ISO 8601: https://www.w3.org/TR/NOTE-datetime
+
+    :return: `None`.
+    """
     current_time = datetime.datetime.fromtimestamp(time.time(),
                                                    tz=datetime.timezone.utc).isoformat()[:19]
-    current_time += 'Z'
+    current_time += 'Z'  # UTC time marker.
 
     # Get the operational status widget.
     operational_id = 'widget_142uuvol5mzqi'
     operational_widget = None
-    for widget in reddit.subreddit(USERNAME).widgets.sidebar:
+    for widget in reddit.subreddit(AUTH.username).widgets.sidebar:
         if isinstance(widget, praw.models.TextArea):
             if widget.id == operational_id:
                 operational_widget = widget
@@ -4169,8 +4208,8 @@ def messaging_send_creator(subreddit_name, subject_type, message):
 
     # If we have a matching subject type, send a message to the creator.
     if subject_type in subject_dict:
-        reddit.redditor(CREATOR).message(subject=subject_dict[subject_type].format(subreddit_name),
-                                         message=message)
+        creator = reddit.redditor(AUTH.creator)
+        creator.message(subject=subject_dict[subject_type].format(subreddit_name), message=message)
 
     return
 
@@ -4306,7 +4345,7 @@ def messaging_modlog_parser(praw_submission):
         # Here we check for flair edits done by moderators, while making
         # sure the flair edit was not done by the bot. Then append the
         # submission ID of the edited link to our list.
-        if str(item.mod).lower() != USERNAME.lower():
+        if str(item.mod).lower() != AUTH.username.lower():
             flaired_by_other_mods.append(i_fullname[3:])
 
     # If the post was flaired by another mod, return `True`.
@@ -4449,12 +4488,13 @@ def messaging_example_collater(subreddit):
     else:
         custom_text = ''
 
-    # Check if there's a custom name and goodbye.
+    # Check if there's a custom name and goodbye. If the phrase is an
+    # empty string, just use the default.
     name_to_use = stored_extended_data.get('custom_name', 'Artemis').replace(' ', ' ^')
     if not name_to_use:
         name_to_use = "Artemis"
     bye_phrase = stored_extended_data.get('custom_goodbye', "have a good day").lower()
-    if not bye_phrase:  # If the phrase is an empty string.
+    if not bye_phrase:
         bye_phrase = "have a good day"
 
     # Combine everything together. This is one of the few places where
@@ -4503,10 +4543,7 @@ def main_config_retriever():
 
     :return: `None`.
     """
-    global SUBREDDITS_OMIT
-    global USERS_OMIT
-    global ANNOUNCEMENT
-    global BOTS_COMPARED
+    global CONFIG
 
     # Access the configuration page on the wiki.
     target_page = reddit.subreddit('translatorBOT').wiki['artemis_config'].content_md
@@ -4514,17 +4551,18 @@ def main_config_retriever():
 
     # Here are some basic variables to use, making sure everything is
     # lowercase for consistency.
-    SUBREDDITS_OMIT = [x.lower().strip() for x in config_data['subreddits_excluded']]
-    BOTS_COMPARED = [x.lower().strip() for x in config_data['bots_comparative']]
-    USERS_OMIT = [x.lower().strip() for x in config_data['users_excluded']] + [CREATOR]
+    config_data['subreddits_omit'] = [x.lower().strip() for x in config_data['subreddits_omit']]
+    config_data['users_omit'] = [x.lower().strip() for x in config_data['users_omit']]
+    config_data['users_omit'] += [AUTH.creator]
+    config_data['bots_comparative'] = [x.lower().strip() for x in config_data['bots_comparative']]
 
     # This is a custom phrase that can be included on all wiki pages as
     # an announcement from the bot creator.
-    ANNOUNCEMENT = ""
     if 'announcement' in config_data:
         # Format it properly as a header with an emoji.
         if config_data['announcement'] is not None:
-            ANNOUNCEMENT = "📢 *{}*".format(config_data['announcement'])
+            config_data['announcement'] = "📢 *{}*".format(config_data['announcement'])
+    CONFIG = SimpleNamespace(**config_data)
 
     return
 
@@ -4670,7 +4708,7 @@ def main_backup_daily():
     current_day = date_convert_to_string(time.time())
 
     # Iterate over the backup paths that are listed.
-    for backup_path in [BACKUP_FOLDER, BACKUP_FOLDER_LOCAL]:
+    for backup_path in [AUTH.backup_folder, AUTH.backup_folder_2]:
         if not os.path.isdir(backup_path):
             # If the web disk or the physical disk is not mounted,
             # record an error.
@@ -4755,7 +4793,6 @@ def main_maintenance_secondary():
     # Check if there are any mentions and mark all modmail as read.
     main_obtain_mentions()
     widget_comparison_updater()
-    main_read_modmail()
 
     return
 
@@ -4774,22 +4811,23 @@ def main_login():
     # Declare the connections as global variables.
     global reddit
     global reddit_helper
+    global CONFIG
 
     # Authenticate the main connection.
     user_agent = 'Artemis v{} (u/{}), a moderation assistant written by u/{}.'
-    user_agent = user_agent.format(VERSION_NUMBER, USERNAME, CREATOR)
-    reddit = praw.Reddit(client_id=ARTEMIS_INFO['app_id'],
-                         client_secret=ARTEMIS_INFO['app_secret'],
-                         password=ARTEMIS_INFO['password'],
-                         user_agent=user_agent, username=USERNAME)
-    logger.info("Startup: Logging in as u/{}.".format(USERNAME))
+    user_agent = user_agent.format(VERSION_NUMBER, AUTH.username, AUTH.creator)
+    reddit = praw.Reddit(client_id=AUTH.app_id,
+                         client_secret=AUTH.app_secret,
+                         password=AUTH.password,
+                         user_agent=user_agent, username=AUTH.username)
+    logger.info("Startup: Logging in as u/{}.".format(AUTH.username))
 
     # Authenticate the secondary helper connection.
-    reddit_helper = praw.Reddit(client_id=ARTEMIS_INFO['helper_app_id'],
-                                client_secret=ARTEMIS_INFO['helper_app_secret'],
-                                password=ARTEMIS_INFO['helper_password'],
-                                user_agent="{} Assistant".format(USERNAME),
-                                username=ARTEMIS_INFO['helper_username'])
+    reddit_helper = praw.Reddit(client_id=AUTH.helper_app_id,
+                                client_secret=AUTH.helper_app_secret,
+                                password=AUTH.helper_password,
+                                user_agent="{} Assistant".format(AUTH.username),
+                                username=AUTH.helper_username)
 
     # Access configuration data.
     main_config_retriever()
@@ -4810,6 +4848,8 @@ def main_timer(manual_start=False):
                             frequently takes a few days to update
                             traffic statistics.
 
+    :param manual_start: A Boolean for whether the statistics cycle was
+                         manually triggered.
     :return: `None`.
     """
     # Define the times we want actions to take place, in order:
@@ -4826,29 +4866,56 @@ def main_timer(manual_start=False):
     current_minute = datetime.datetime.utcnow().minute
     current_date_only = datetime.datetime.utcfromtimestamp(start_time).strftime('%d')
 
-    # Check to see if the statistics activity has already been run.
+    # Define the alternate times and dates for userflair updates.
+    # This is run at a varying time period in order to avoid
+    # too many API calls at the same time.
+    userflair_update_days = [MONTH_ACTION_DAY, MONTH_ACTION_DAY + 14]
+    userflair_update_time = ACTION_TIME + 12
+
+    # Update the operation status widget at the third of each hour
+    # This is done before any exits.
+    if 0 <= current_minute <= 3 or 20 <= current_minute <= 23 or 40 <= current_minute <= 43:
+        widget_operational_status_updater()
+
+    # Check to see if the statistics functions have already been run.
+    # If we have already processed the actions for today, note that.
     query = "SELECT * FROM subreddit_updated WHERE subreddit = ? AND date = ?"
     CURSOR_DATA.execute(query, ('all', current_date_string))
     result = CURSOR_DATA.fetchone()
-
-    # If we have already processed the actions for today, note that.
     if result is not None:
         all_stats_done = True
     else:
         all_stats_done = False
 
-    # Update the operation status widget at the start of the hour
-    # and every half-hour. This is done before any exits.
-    if 0 <= current_minute <= 5 or 30 <= current_minute <= 35:
-        widget_operational_status_updater()
+    # Check to see on certain days if the userflair statistics function
+    # has already been run.
+    userflair_done = True
+    if int(current_date_only) in userflair_update_days and current_hour == userflair_update_time:
+        query = "SELECT * FROM subreddit_updated WHERE subreddit = ? AND date = ?"
+        CURSOR_DATA.execute(query, ('userflair', current_date_string))
+        userflair_result = CURSOR_DATA.fetchone()
+        if userflair_result is None:
+            userflair_done = False
 
     # If we are outside the update window, exit. Otherwise, if a manual
     # update by the creator was not requested, and all statistics were
     # retrieved, also exit.
-    if current_hour > (ACTION_TIME + action_window):
+    exit_early = True
+    # Run a date check first. If the current day is a userflair update
+    # day, then check the time. If it matches the time for the userflair
+    # update, make it so we don't exit early.
+    if int(current_date_only) in userflair_update_days:
+        if current_hour == userflair_update_time and not userflair_done:
+            exit_early = False
+    if exit_early:
+        if current_hour <= (ACTION_TIME + action_window) and not all_stats_done:
+            exit_early = False
+        if manual_start:
+            exit_early = False
+
+    if exit_early:
         return
-    if all_stats_done and not manual_start:
-        return
+
     '''
     Here we start a cycle. The cycles here basically make it so that
     while Artemis is gathering statistics it will check
@@ -4861,10 +4928,53 @@ def main_timer(manual_start=False):
     # Check integrity first, make sure the subs to update are accurate.
     # This is done by comparing the local list to the online list.
     # Also refresh the configuration data.
-                                                        
     database_monitored_integrity_checker()
     monitored_list = database_monitored_subreddits_retrieve()
     main_config_retriever()
+
+    # On a few specific days, run the userflair updating thread first in
+    # order to not conflict with the main runtime.
+    # This is currently set for 1st and 15th of each month, and more
+    # specifically only twelve hours from the regular routine to avoid
+    # over-use of API calls.
+    if int(current_date_only) in userflair_update_days and current_hour == userflair_update_time:
+        logger.info('Main Timer: Initializing a secondary thread for userflair updates.')
+        userflair_check_list = []
+
+        # Iterate over the subreddits, to see if they meet the minimum
+        # amount of subscribers needed OR if they have manually opted in
+        # to getting userflair statistics, or if they have opted out.
+        for sub in monitored_list:
+            if database_last_subscriber_count(sub) > MINIMUM_SUBSCRIBERS_USERFLAIR:
+                userflair_check_list.append(sub)
+                if 'userflair_statistics' in database_extended_retrieve(sub):
+                    if not database_extended_retrieve(sub)['userflair_statistics']:
+                        userflair_check_list.remove(sub)
+            elif 'userflair_statistics' in database_extended_retrieve(sub):
+                if database_extended_retrieve(sub)['userflair_statistics']:
+                    userflair_check_list.append(sub)
+                    main_counter_updater(sub, 'Updated userflair statistics')
+
+        # Insert an entry into the database, telling us that it's done.
+        # This is technically a 'dummy' subreddit, named `userflair`
+        # much like `all` which is inserted after statistics runs.
+        CURSOR_DATA.execute("INSERT INTO subreddit_updated VALUES (?, ?)", ('userflair',
+                                                                            current_date_string))
+        CONN_DATA.commit()
+
+        # Launch the secondary userflair updating thread as another
+        # thread run concurrently. It is alphabetized ahead of time.
+        if not userflair_done:
+            userflair_check_list = list(sorted(userflair_check_list))
+            logger.info('Main Timer: Checking the following subreddits '
+                        'for userflairs: {}'.format(userflair_check_list))
+            userflair_thread = threading.Thread(target=wikipage_userflair_editor,
+                                                kwargs=dict(subreddit_list=userflair_check_list))
+            userflair_thread.start()
+
+    # Exit if not running userflairs.
+    if all_stats_done:
+        return
 
     # Start the first timer. This will be reset each cycle later.
     cycle_initialize_time = int(time.time())
@@ -4892,38 +5002,6 @@ def main_timer(manual_start=False):
         if len(existing_updater_dict) > 0 and len(UPDATER_DICTIONARY) == 0:
             logger.info('Main Timer: Reloading the blank updater dictionary from cache.')
             UPDATER_DICTIONARY.update(existing_updater_dict)
-
-    # On a few specific days, run the userflair updating thread first in
-    # order to not conflict with the main runtime.
-    # This is currently set for 1st and 15th of each month, and more
-    # specifically only in the first hour window.
-    userflair_update_days = [MONTH_ACTION_DAY, MONTH_ACTION_DAY + 14]
-    if int(current_date_only) in userflair_update_days and current_hour == ACTION_TIME:
-        logger.info('Main Timer: Initializing a secondary thread for userflair updates.')
-        userflair_check_list = []
-
-        # Iterate over the subreddits, to see if they meet the minimum
-        # amount of subscribers needed OR if they have manually opted in
-        # to getting userflair statistics, or if they have opted out.
-        for sub in monitored_list:
-            if database_last_subscriber_count(sub) > MINIMUM_SUBSCRIBERS_USERFLAIR:
-                userflair_check_list.append(sub)
-                if 'userflair_statistics' in database_extended_retrieve(sub):
-                    if not database_extended_retrieve(sub)['userflair_statistics']:
-                        userflair_check_list.remove(sub)
-            elif 'userflair_statistics' in database_extended_retrieve(sub):
-                if database_extended_retrieve(sub)['userflair_statistics']:
-                    userflair_check_list.append(sub)
-                    main_counter_updater(sub, 'Updated userflair statistics')
-
-        # Launch the secondary userflair updating thread as another
-        # thread run concurrently. It is alphabetized ahead of time.
-        userflair_check_list = list(sorted(userflair_check_list))
-        logger.info('Main Timer: Checking the following subreddits '
-                    'for userflairs: {}'.format(userflair_check_list))
-        userflair_thread = threading.Thread(target=wikipage_userflair_editor,
-                                            kwargs=dict(subreddit_list=userflair_check_list))
-        userflair_thread.start()
 
     # Update the status widget's initial position. It is given a value
     # instead of zero in order to avoid an error dividing by zero.
@@ -5183,12 +5261,12 @@ def main_obtain_mod_permissions(subreddit_name):
         moderators_list = [mod.name.lower() for mod in r.moderator()]
     except prawcore.exceptions.Forbidden:
         return False, None
-    am_mod = True if USERNAME.lower() in moderators_list else False
+    am_mod = True if AUTH.username.lower() in moderators_list else False
 
     if not am_mod:
         my_perms = None
     else:
-        me_as_mod = [x for x in r.moderator(USERNAME) if x.name == USERNAME][0]
+        me_as_mod = [x for x in r.moderator(AUTH.username) if x.name == AUTH.username][0]
 
         # The permissions I have become a list. e.g. `['wiki']`
         my_perms = me_as_mod.mod_permissions
@@ -5202,6 +5280,7 @@ def main_read_modmail():
     the database so it is run in a separate secondary thread.
     This is done just so that there aren't a ton of unread modmail
     notifications piling up; Artemis does not do anything with the mail.
+    DEPRECATED AND UNUSED.
 
     :return: `None`.
     """
@@ -5212,7 +5291,7 @@ def main_read_modmail():
     # Get the list of all monitored subreddits (this is NOT database
     # dependent). For each fetch the real name of the subreddit, and the
     # fullname ID of the subreddit, prefixed with `t5_`.
-    returned_data = reddit.get('/user/{}/moderated_subreddits'.format(USERNAME))['data']
+    returned_data = reddit.get('/user/{}/moderated_subreddits'.format(AUTH.username))['data']
     for item in returned_data:
         modded_sub = item['sr'].lower()
         all_subs[modded_sub] = item['name'].lower()  # Fullname.
@@ -5283,8 +5362,8 @@ def main_takeout(subreddit_name):
     expiry_time = '1H'
 
     # Connect to Pastebin and authenticate.
-    pb = Pastebin(PASTEBIN_API_KEY)
-    pb.authenticate(USERNAME, PASTEBIN_PASSWORD)
+    pb = Pastebin(AUTH.pastebin_api_key)
+    pb.authenticate(AUTH.username, AUTH.pastebin_password)
 
     # Upload the data. `1` means it's an unlisted paste.
     json_data = database_takeout(subreddit_name.lower())
@@ -5318,8 +5397,8 @@ def main_obtain_mentions():
 
     # Run a regular Reddit search for posts mentioning this bot.
     # If a post is not saved, it means we haven't acted upon it yet.
-    query = "{0} OR url:{0} OR selftext:{0} NOT author:{1} NOT author:{0}".format(USERNAME.lower(),
-                                                                                  CREATOR)
+    query = ("{0} OR url:{0} OR selftext:{0} NOT author:{1} "
+             "NOT author:{0}".format(AUTH.username.lower(), AUTH.creator))
     for submission in reddit.subreddit('all').search(query, sort='new', time_filter='week'):
         if not submission.saved:
             full_dictionary[submission.id] = (submission.subreddit.display_name,
@@ -5338,7 +5417,7 @@ def main_obtain_mentions():
     if 'data' in retrieved_data:
         returned_comments = retrieved_data['data']
         for comment_info in returned_comments:
-            if comment_info['author'].lower() in USERS_OMIT:
+            if comment_info['author'].lower() in CONFIG.users_omit:
                 continue
             comment = reddit.comment(id=comment_info['id'])  # Convert into PRAW object.
             try:
@@ -5414,7 +5493,7 @@ def main_post_approval(submission, template_id=None):
     # Check to see if the moderator who removed it is Artemis.
     # We don't want to override other mods.
     if moderator_removed is not None:
-        if moderator_removed != USERNAME:
+        if moderator_removed != AUTH.username:
             # The moderator who removed this is not me. Don't restore.
             logger.debug('Post Approval: Post `{}` removed by mod u/{}.'.format(post_id,
                                                                                 moderator_removed))
@@ -5502,15 +5581,15 @@ def main_post_approval(submission, template_id=None):
             # triggered and the bot will check for a
             # shadow ban post that has already been up.
             logger.error('Post Approval: `403 Forbidden` error for approval. Shadowban?')
-            sb_posts = list(reddit.subreddit(USERNAME).search("title:Shadowban", sort='new',
-                                                              time_filter='week'))
+            sb_posts = list(reddit.subreddit(AUTH.username).search("title:Shadowban", sort='new',
+                                                                   time_filter='week'))
 
             # If this shadow-ban alert hasn't been submitted
             # yet, use u/ArtemisHelper instead to submit a
             # post about this possibility.
             if len(sb_posts) == 0:
-                reddit_helper.subreddit(USERNAME).submit(title="Possible Shadowban",
-                                                         selftext='')
+                reddit_helper.subreddit(AUTH.username).submit(title="Possible Shadowban",
+                                                              selftext='')
                 logger.info('Post Approval: Submitted a possible shadowban '
                             'alert to r/AssistantBOT.')
         else:
@@ -5588,9 +5667,9 @@ def main_messaging(regular_cycle=True):
             # Let my creator know of this mention and get the link
             # with full context of the comment.
             cmt_permalink = message.context[:-1] + "10000"
-            if message.fullname.startswith('t1_') and msg_author != CREATOR:
+            if message.fullname.startswith('t1_') and msg_author != AUTH.creator:
                 # Make sure my creator isn't also tagged in the comment.
-                if 'u/{}'.format(CREATOR) not in message.body:
+                if 'u/{}'.format(AUTH.creator) not in message.body:
                     body_format = message.body.replace('\n', '\n> ')
                     message_content = "**[Link]({})**\n\n> ".format(cmt_permalink) + body_format
                     messaging_send_creator(msg_subreddit, 'mention',
@@ -5608,7 +5687,7 @@ def main_messaging(regular_cycle=True):
             continue
 
         # Allow for remote maintenance actions from my creator.
-        if msg_author == CREATOR:
+        if msg_author == AUTH.creator:
             logger.info('Messaging: Received `{}` message from my creator.'.format(msg_subject))
 
             # There are a number of remote actions available, including
@@ -5630,8 +5709,8 @@ def main_messaging(regular_cycle=True):
                 list_to_freeze = [x.strip() for x in list_to_freeze]
                 for sub in list_to_freeze:
                     database_extended_insert(sub, {'freeze': True})
-                    logger.info('Messaging: Froze r/{} at the request of u/{}.'.format(sub,
-                                                                                       CREATOR))
+                    logger.info('Messaging: Froze r/{} at request of u/{}.'.format(sub,
+                                                                                   AUTH.creator))
                 message.reply('Messaging: Froze these subreddits: **{}**.'.format(list_to_freeze))
             elif 'initiate' in msg_subject:
                 # To manually initiate the `main_timer` for statistics,
@@ -5672,7 +5751,7 @@ def main_messaging(regular_cycle=True):
 
                 # If there's a matching template and the original sender
                 # of the chain is Artemis, we set the post flair.
-                if template_result is not None and message_parent_author == USERNAME:
+                if template_result is not None and message_parent_author == AUTH.username:
                     relevant_submission = reddit.submission(relevant_post_id)
                     main_post_approval(relevant_submission, template_result)
                     logger.info('Messaging: > Set flair via messaging for '
@@ -5695,30 +5774,12 @@ def main_messaging(regular_cycle=True):
         # If the counter is reached, Artemis will process it again
         # later so that it can also get to other things first.
         if 'invitation to moderate' in msg_subject and mod_invite_counter <= mod_invite_limit:
-            '''
-            if not check_for_invites:
-                message.mark_unread()
-                logger.info("Messaging: r/{} invite detected but deferred.".format(new_subreddit))
-
-                # Check the message thread to see if I've replied to
-                # them before with the deferral message.
-                # If the time is relatively recent (avoiding repeat
-                # replies).
-                if (int(time.time()) - message.created_utc) < (MINIMUM_AGE_TO_MONITOR * 3):
-                    # If there are no existing messages, reply, letting
-                    # the mods know I will accept soon.
-                    if len(message.replies) == 0:
-                        message.reply(MSG_MOD_RESP_CYCLE)
-                        defer = 'Messaging: Replied to r/{} with a DEFERRAL hold message.'
-                        logger.info(defer.format(new_subreddit))
-                continue
-            '''
             # Note the invitation to moderate.
             logger.info("Messaging: New moderation invite from r/{}.".format(msg_subreddit))
 
             # Check against our configuration data. Exit if it matches
             # pre-existing data.
-            if new_subreddit in SUBREDDITS_OMIT:
+            if new_subreddit in CONFIG.subreddits_omit:
                 # Message my creator about this.
                 messaging_send_creator(new_subreddit, "skip",
                                        "View it at r/{}.".format(new_subreddit))
@@ -5740,7 +5801,7 @@ def main_messaging(regular_cycle=True):
             # the prefix "u_". Since these don't have post flairs,
             # it's pointless to moderate them.
             if new_subreddit.startswith("u_"):
-                logger.info("Messaging: > Invite to user profile subreddit. Not acceptable.")
+                logger.info("Messaging: > Invite to user profile subreddit. Not supported.")
                 message.reply(MSG_MOD_INIT_PROFILE)
                 continue
 
@@ -5752,7 +5813,7 @@ def main_messaging(regular_cycle=True):
                 message.subreddit.mod.accept_invite()
                 logger.info("Messaging: > Invite accepted.")
             except praw.exceptions.APIException:
-                logger.error("Messaging: > Moderation invite error. Already accepted?")
+                logger.error("Messaging: > Moderation invite error. Already accepted? Withdrawn?")
                 continue
 
             # Add the subreddit to our monitored list and we also fetch
@@ -5835,6 +5896,16 @@ def main_messaging(regular_cycle=True):
             message.reply(body + BOT_DISCLAIMER.format(new_subreddit))
             logger.info("Messaging: Sent confirmation reply. Set to `{}` mode.".format(mode))
 
+            # If the flair enforce state is `On`, send an example
+            # message as a new message to modmail.
+            if database_monitored_subreddits_enforce_status(new_subreddit):
+                example_text = ("*Should your subreddit choose to enforce post flairs, here is an "
+                                "example of what users will receive: ")
+                example_text += messaging_example_collater(msg_subreddit)
+                example_subject = "[Artemis] Example Flair Enforcement Message"
+                msg_subreddit.message(example_subject, example_text)
+                logger.info("Messaging: Sent example message.".format(mode))
+
             # Post a submission to Artemis's profile noting that it is
             # active on the appropriate subreddit.
             # We do a quick check to see if we have noted this subreddit
@@ -5842,7 +5913,7 @@ def main_messaging(regular_cycle=True):
             status = "Accepted mod invite to r/{}".format(new_subreddit)
             subreddit_url = 'https://www.reddit.com/r/{}'.format(new_subreddit)
             try:
-                user_sub = 'u_{}'.format(USERNAME)
+                user_sub = 'u_{}'.format(AUTH.username)
                 log_entry = reddit.subreddit(user_sub).submit(title=status, url=subreddit_url,
                                                               send_replies=False, resubmit=False,
                                                               nsfw=msg_subreddit.over18)
@@ -5851,7 +5922,6 @@ def main_messaging(regular_cycle=True):
                 # Set `log_entry` to `None`. Send message to creator.
                 logger.info('Messaging: r/{} has already been added before.'.format(new_subreddit))
                 log_entry = None
-                messaging_send_creator(new_subreddit, 'add', "View it at r/{}.".format(new_subreddit))
             else:
                 # If the log submission is successful, lock this log
                 # entry so comments can't be made on it.
@@ -5880,6 +5950,9 @@ def main_messaging(regular_cycle=True):
                     log_comment = log_entry.reply(info)
                     log_comment.mod.distinguish(how='yes', sticky=True)
                     log_comment.mod.lock()
+
+            # Check against the history.
+            wikipage_edit_history('readd', new_subreddit)
         elif 'invitation to moderate' in msg_subject and mod_invite_counter > mod_invite_limit:
             message.mark_unread()
             logger.info("Messaging: r/{} invite detected "
@@ -5902,11 +5975,12 @@ def main_messaging(regular_cycle=True):
             logger.info('Messaging: Replied with takeout data.')
 
         # EXIT EARLY if subreddit is NOT in monitored list and it wasn't
-        # a mod invite, as there's no point in processing said message.
+        # a mod invite or a takeout request, as there's no point in
+        # processing said message.
         current_permissions = main_obtain_mod_permissions(new_subreddit)
         if new_subreddit not in database_monitored_subreddits_retrieve():
             # We got a message but we are not monitoring that subreddit.
-            logger.debug("Messaging: New message but not a mod of r/{}.".format(new_subreddit))
+            logger.info("Messaging: New message but not a mod of r/{}.".format(new_subreddit))
             continue
 
         # OTHER MODERATION-RELATED MESSAGING FUNCTIONS
@@ -5995,7 +6069,7 @@ def main_messaging(regular_cycle=True):
                                                            'userflair_statistics: True')
                 else:
                     page_template = str(CONFIG_DEFAULT)
-                config_page = msg_subreddit.wiki["{}_config".format(USERNAME)]
+                config_page = msg_subreddit.wiki["{}_config".format(AUTH.username)]
                 config_page.edit(content=page_template,
                                  reason='Reverting configuration per mod request.')
 
@@ -6038,22 +6112,39 @@ def main_messaging(regular_cycle=True):
                 logger.info('Messaging: > No `flair` mod permission '
                             'on r/{}.'.format(new_subreddit))
 
-        elif 'has been removed' in msg_subject:
+        elif 'has been removed as a moderator from' in msg_subject:
             # Artemis was removed as a mod from a subreddit.
             # Delete from the monitored database.
             logger.info("Messaging: New demod message from r/{}.".format(new_subreddit))
-            database_subreddit_delete(new_subreddit)
-            message.reply(MSG_MOD_LEAVE.format(new_subreddit)
-                          + BOT_DISCLAIMER.format(new_subreddit))
-            main_counter_updater(new_subreddit, action_type="Removed as moderator")
-            logger.info("Messaging: > Sent demod confirmation reply to moderators.")
 
-            # Notify my creator about it.
-            creator_msg = ("[Oh well.](https://media.giphy.com/media/GXWJTMP8ZhHKE/giphy.gifv)"
-                           '\n\n* **r/{}**'.format(new_subreddit))
-            subject_line = 'Demodded from subreddit: r/{}'.format(new_subreddit)
-            reddit.redditor(CREATOR).message(subject=subject_line,
-                                             message=creator_msg)
+            # Verification check to make sure it's the right one.
+            # This prevents theoretical abuse of say, by a subreddit
+            # sending a fake de-mod message for another subreddit.
+            try:
+                removed_subreddit = re.findall(r"[ /]r/([a-zA-Z0-9-_]*)", msg_subject)[0].lower()
+            except IndexError:
+                logger.error('Messaging: > Error retrieving subreddit name from message `{}` '
+                             'with regex. Subject: {}'.format(message.id, msg_subject))
+                continue
+
+            # If the subreddits match, then we can process the removal.
+            if removed_subreddit == new_subreddit:
+                # Update the history with the removal.
+                relevant_extended = database_extended_retrieve(new_subreddit)
+                relevant_extended['removal_id'] = message.id
+                relevant_extended['removal_utc'] = int(message.created_utc)
+                wikipage_edit_history("remove", {new_subreddit: relevant_extended})
+
+                # Delete the subreddit from the monitored list.
+                database_subreddit_delete(new_subreddit)
+                message.reply(MSG_MOD_LEAVE.format(new_subreddit)
+                              + BOT_DISCLAIMER.format(new_subreddit))
+                main_counter_updater(new_subreddit, action_type="Removed as moderator")
+                logger.info("Messaging: > Sent demod confirmation reply to moderators.")
+            else:
+                logger.error('Messaging: > Demod message is for r/{} '
+                             'but was sent from r/{}.'.format(removed_subreddit, new_subreddit))
+                continue
 
     return
 
@@ -6272,7 +6363,7 @@ def main_get_submissions():
 
         # Check to see if the author is me or AutoModerator.
         # If it is, don't process.
-        if post_author.lower() == USERNAME.lower() or post_author.lower() == 'automoderator':
+        if post_author.lower() == AUTH.username.lower() or post_author.lower() == 'automoderator':
             logger.info('Get: > Post `{}` is by me or AutoModerator. Skipped.'.format(post_id))
             continue
 
@@ -6409,15 +6500,24 @@ def main_get_submissions():
 
 def external_random_test(query):
     """ Fetch initialization information for a random selection of
-    non-local subeddits.
+    non-local subeddits. This is used to test the process and procedure
+    of adding new subreddits to the bot's monitored database.
     """
+    already_monitored = database_monitored_subreddits_retrieve()
+
     if query == 'random':
-        # Choose a number of random subreddits to test.
+        # Choose a number of random subreddits to test. There is code
+        # here to alternately try to get an alternative if the random
+        # one is already being monitored.
         random_subs = []
         num_initialize = int(input('\nEnter the number of random subreddits to initialize: '))
         for _ in range(num_initialize):
             # noinspection PyUnboundLocalVariable
-            random_subs.append(reddit.random_subreddit().display_name.lower())
+            first_retrieve = reddit.random_subreddit().display_name.lower()
+            if first_retrieve not in already_monitored:
+                random_subs.append(first_retrieve)
+            else:
+                random_subs.append(reddit.random_subreddit().display_name.lower())
         random_subs.sort()
         print("\n\n### Now testing: r/{}.\n".format(', r/'.join(random_subs)))
 
@@ -6455,17 +6555,16 @@ def external_local_test(query):
     """Fetch initialization information for a random selection of
     locally stored subeddits.
     """
-
-    # Fetch all the subreddits we monitor and ask for
-    # the number to test.
-    number_to_test = int(input("\nEnter the number of tests to conduct: "))
-    random_subs = random.sample(database_monitored_subreddits_retrieve(), number_to_test)
-    random_subs.sort()
-    print("\n\n### Now testing: r/{}.\n".format(', r/'.join(random_subs)))
-
     # Now begin to test the collation by running the
     # function, making sure there are no errors.
     if query == 'random':
+        # Fetch all the subreddits we monitor and ask for
+        # the number to test.
+        number_to_test = int(input("\nEnter the number of tests to conduct: "))
+        random_subs = random.sample(database_monitored_subreddits_retrieve(), number_to_test)
+        random_subs.sort()
+        print("\n\n### Now testing: r/{}.\n".format(', r/'.join(random_subs)))
+
         init_times = []
         for test_sub in random_subs:
             time_initialize_start = time.time()
@@ -6487,6 +6586,111 @@ def external_local_test(query):
         print(wikipage_collater(query))
 
     return
+
+
+def external_artemis_monthly_statistics(month_string):
+    """This function collects various statistics on the bot's actions
+    over a certain month and returns them as a Markdown segment.
+
+    :param month_string: A month later than December 2019, expressed as
+                         YYYY-MM.
+    :return: A Markdown segment of text.
+    """
+    list_of_days = []
+    list_of_actions = []
+    list_of_lines = []
+    list_of_posts = []
+    actions_total = {}
+    posts = {}
+
+    # Omit these actions from the chart.
+    omit_actions = ['Removed as moderator']
+
+    # Get the UNIX times that bound our month.
+    year, month = month_string.split('-')
+    start_time = date_convert_to_unix(month_string + '-01')
+    end_time = "{}-{}".format(month_string, calendar.monthrange(int(year), int(month))[1])
+    end_time = date_convert_to_unix(end_time) + 86399
+
+    # Get the subreddits that were added during this month.
+    current_subreddits = database_monitored_subreddits_retrieve()
+    added_subreddits = []
+    for post in reddit_helper.redditor(AUTH.username).submissions.new(limit=100):
+        if "accepted" in post.title.lower() and end_time >= post.created_utc >= start_time:
+            added_subreddits.append(post.title.split('r/')[1])
+    added_subreddits = [x for x in added_subreddits if x in current_subreddits]
+    added_subreddits.sort()
+    added_section = "\n## Artemis Statistics for {}".format(month_string)
+    added_section += "\n\n### Added Subreddits\n\n* r/{}".format('\n* r/'.join(added_subreddits))
+
+    # Get the actions from during this time period.
+    CURSOR_DATA.execute('SELECT * FROM subreddit_actions WHERE subreddit == ?', ('all',))
+    result = CURSOR_DATA.fetchone()
+    actions = ast.literal_eval(result[1])
+
+    # Iterate over the days and actions in the actions dictionaries.
+    for day in actions:
+        if end_time >= date_convert_to_unix(day) >= start_time:
+            list_of_days.append(day)
+        for action in actions[day]:
+            if action not in list_of_actions and action not in omit_actions:
+                list_of_actions.append(action)
+
+    # Sort and form the header.
+    list_of_actions.sort()
+    list_of_days.sort()
+    for action in list_of_actions:
+        actions_total[action] = 0
+    header = "Day | " + " | ".join(list_of_actions)
+    divider = "---|---" * len(list_of_actions)
+
+    # Iterate over the days and form line-by-line actions.
+    for day in list_of_days:
+        day_data = actions[day]
+        formatted_components = []
+        for action in list_of_actions:
+            if action in day_data:
+                formatted_components.append("{:,}".format(day_data[action]))
+                actions_total[action] += day_data[action]
+            else:
+                formatted_components.append('---')
+        day_line = "| {} | {} ".format(day, ' | '.join(formatted_components))
+        list_of_lines.append(day_line)
+
+    # Sum up the total number of actions as a final line.
+    formatted_components = []
+    for action in list_of_actions:
+        formatted_components.append("{:,}".format(actions_total[action]))
+    total_line = "| **Total** | {} ".format(' | '.join(formatted_components))
+    list_of_lines.append(total_line)
+
+    # Collect the number of posts across ALL subreddits.
+    # This also adds a final line summing up everything.
+    posts_total = 0
+    CURSOR_DATA.execute("SELECT * FROM subreddit_stats_posts")
+    stats_results = CURSOR_DATA.fetchall()
+    for entry in stats_results:
+        sub_data = ast.literal_eval(entry[1])
+        for day in list_of_days:
+            if day not in sub_data:
+                continue
+            if day in posts:
+                posts[day] += sum(sub_data[day].values())
+            else:
+                posts[day] = sum(sub_data[day].values())
+            posts_total += sum(sub_data[day].values())
+    for day in list(sorted(posts.keys())):
+        line = "| {} | {:,} |".format(day, posts[day])
+        list_of_posts.append(line)
+    list_of_posts.append('| **Total** | {:,} |'.format(posts_total))
+    posts_data = ("### Daily Processed Posts\n\nDay | Number of Posts"
+                  "\n----|---\n{}".format('\n'.join(list_of_posts)))
+
+    # Finalize the text to return.
+    body = "{}\n\n{}\n\n### Daily Actions\n\n".format(added_section, posts_data)
+    body += "{}\n{}\n{}".format(header, divider, "\n".join(list_of_lines))
+
+    return body
 
 
 def external_mail_alert():
@@ -6522,7 +6726,7 @@ command line. The modes are:
                 or a single unmonitored subreddit.
     * `test`  - generate statistics pages for a random selection of,
                 or a single monitored subreddit.
-                
+
 There's also one supplementary function to use:
 
     * `alert` - send an alert in the form of a message to subreddits
@@ -6532,10 +6736,10 @@ if len(sys.argv) > 1:
     REGULAR_MODE = False
     # Get the mode keyword that's accepted after the script path.
     specific_mode = sys.argv[1].strip().lower()
+    # noinspection PyUnboundLocalVariable
+    logger.info("LOCAL MODE: Launching Artemis in '{}' mode.".format(specific_mode))
 
     if specific_mode == 'start':  # We want to fetch specific information for a sub.
-        # noinspection PyUnboundLocalVariable
-        logger.info("LOCAL MODE: Launching Artemis in 'start' mode.")
         l_mode = input("\n====\n\nEnter 'random', name of a new sub, or 'x' to exit: ")
         l_mode = l_mode.lower().strip()
 
@@ -6547,8 +6751,6 @@ if len(sys.argv) > 1:
     elif specific_mode == "test":
         # This runs the wikipage generator through randomly selected
         # subreddits that have already saved data.
-        # noinspection PyUnboundLocalVariable
-        logger.info("LOCAL MODE: Launching Artemis in 'test' mode.")
         l_mode = input("\n====\n\nEnter 'random', name of a sub, or 'x' to exit: ").lower().strip()
 
         # Exit the routine if the value is x.
@@ -6557,9 +6759,10 @@ if len(sys.argv) > 1:
         else:
             external_local_test(l_mode)
     elif specific_mode == 'alert':
-        # noinspection PyUnboundLocalVariable
-        logger.info("LOCAL MODE: Launching Artemis in 'alert' mode.")
         external_mail_alert()
+    elif specific_mode == 'stats':
+        month_stats = input("\n====\n\nEnter the month in YYYY-MM format or 'x' to exit: ").strip()
+        print(external_artemis_monthly_statistics(month_stats))
     else:
         REGULAR_MODE = True
 else:
