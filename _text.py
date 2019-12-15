@@ -90,7 +90,7 @@ how to set up and enable post flairs for your subreddit.
 If you have already created post flairs, it may be that they were not set to be \
 publicly selectable. If this is the case, please make sure the option for submitters to assign \
 their own post flair is selected, ([New Reddit](https://i.imgur.com/86mVlzQ.png), [Old Reddit]\
-(https://i.imgur.com/V2YqXQG.png)) and then send a modmail message with `Enable` in the subject\
+(https://i.imgur.com/V2YqXQG.png)) and then send a modmail message with `Enable` in the subject \
 line to re-enable flair enforcing.
 
 🔒 **I have disabled flair enforcing on the subreddit for now since there are no post flairs.** \
