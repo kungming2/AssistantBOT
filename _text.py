@@ -37,11 +37,11 @@ these action messages will get classified as modmail "discussions" and will be i
 (https://www.reddit.com/r/AssistantBOT/wiki/advanced)*. |
 | `Revert`    | Revert to the default configuration and clear all advanced settings.              |
 | `Takeout`   | Export r/{0}'s Artemis data as JSON. *[See here for details]\
-(https://www.reddit.com/r/AssistantBOT/wiki/faq#wiki_takeout) |
+(https://www.reddit.com/r/AssistantBOT/wiki/faq#wiki_takeout)* |
 
 ---
 
-* I update subreddit statistics every day after [midnight UTC](https://time.is/UTC).
+* I update subreddit statistics daily after [midnight UTC](https://time.is/UTC).
 * Please [contact my creator](https://www.reddit.com/message/compose?to=kungming2&subject=\
 About+Artemis+%28From+r%2F{0}%29) u/kungming2 if you have any questions.
 
@@ -50,7 +50,7 @@ Have a good day!
 MSG_MOD_INIT_PROFILE = """
 👤 This moderation invite appears to be for a redditor's user profile. Unfortunately user \
 profiles *do not* have [post flairs](https://www.reddithelp.com/en/categories/using-reddit/\
-profiles/profile-moderation-tools) and Artemis is therefore not usable on them.
+profiles/profile-moderation-tools) and Artemis is therefore unusable on them.
 
 If this is in error, please comment on r/AssistantBOT with this subreddit's name. Thanks!
 """
@@ -86,6 +86,12 @@ If you'd like, please check out these Reddit Help articles ([New Reddit]\
 (https://mods.reddithelp.com/hc/en-us/articles/360010513191-Post-Flair), \
 [Old Reddit](https://mods.reddithelp.com/hc/en-us/articles/360002598912-Flair)) for guidance on \
 how to set up and enable post flairs for your subreddit.
+
+If you have already created post flairs, it may be that they were not set to be \
+publicly selectable. If this is the case, please make sure the option for submitters to assign \
+their own post flair is selected, ([New Reddit](https://i.imgur.com/86mVlzQ.png), [Old Reddit]\
+(https://i.imgur.com/V2YqXQG.png)) and then send a modmail message with `Enable` in the subject\
+line to re-enable flair enforcing.
 
 🔒 **I have disabled flair enforcing on the subreddit for now since there are no post flairs.** \
 You can re-enable flair enforcing by following the instructions below.
@@ -255,7 +261,7 @@ GOODBYE_PHRASES = ['Adieu', 'Adiós', 'Au revoir', 'Best regards', 'Cheers', 'Ci
                    'Goodbye', 'Hasta la vista', 'Have a fantastic day', 'Have a good one',
                    'Have a great day', 'Have a nice day', 'Keep it real', 'Live long and prosper',
                    'Mahalo', 'Peace', 'Regards', 'Sayonara', 'So long',
-                   'Take care', 'Take it easy', 'Take it sleazy', 'Toodeloo', 'Tschüss']
+                   'Take care', 'Take it easy', 'Toodeloo', 'Tschüss']
 # This is the default Artemis configuration as expressed in YAML.
 # In dictionary form it's rendered as:
 # {'flair_enforce_approve_posts': True,
