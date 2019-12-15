@@ -3,5 +3,5 @@ pbwrap
 praw>=6.1.0
 prawcore
 python-Levenshtein
-pyyaml
+pyyaml>=5.1.0
 requests
