@@ -5899,8 +5899,7 @@ def main_messaging(regular_cycle=True):
             # If the flair enforce state is `On`, send an example
             # message as a new message to modmail.
             if database_monitored_subreddits_enforce_status(new_subreddit):
-                example_text = ("*Should your subreddit choose to enforce post flairs, here is an "
-                                "example of what users will receive: ")
+                example_text = ("*Should your subreddit choose to enforce post flairs:\n\n")
                 example_text += messaging_example_collater(msg_subreddit)
                 example_subject = "[Artemis] Example Flair Enforcement Message"
                 msg_subreddit.message(example_subject, example_text)
