@@ -12,24 +12,24 @@ Written and maintained by u/kungming2.
 For more information see: https://www.reddit.com/r/AssistantBOT
 """
 
-import ast
-import calendar
 import datetime
-import json
 import logging
 import os
-import random
 import re
-import shutil
 import sqlite3
 import sys
-import threading
 import time
 import traceback
-import urllib.request
+from ast import literal_eval
+from calendar import monthrange
 from collections import OrderedDict
+from json import dumps as json_dumps
+from random import choice, sample
+from shutil import copy
+from threading import Thread
 from types import SimpleNamespace
 from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
 
 import praw
 import prawcore
@@ -44,17 +44,18 @@ from _text import *
 
 """INITIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "1.7.11 Hazel"
+VERSION_NUMBER = "1.7.13 Hazel"
 
 # Define the location of the main files Artemis uses.
 # They should all be in the same folder as the Python script itself.
 SOURCE_FOLDER = os.path.dirname(os.path.realpath(__file__))
-FILE_ADDRESS_DATA = SOURCE_FOLDER + "/_data.db"
-FILE_ADDRESS_ERROR = SOURCE_FOLDER + "/_error.md"
-FILE_ADDRESS_LOGS = SOURCE_FOLDER + "/_logs.md"
-FILE_ADDRESS_INFO = SOURCE_FOLDER + "/_info.yaml"
+FILE_ADDRESS = {'data': "/_data.db", 'error': "/_error.md",
+                "logs": "/_logs.md", "info": "/_info.yaml"}
+for file_type, file_address in FILE_ADDRESS.items():
+    FILE_ADDRESS[file_type] = SOURCE_FOLDER + file_address
+FILE_ADDRESS = SimpleNamespace(**FILE_ADDRESS)
 
-"""LOAD CREDENTIALS, LOGGER, AND CONSTANT VARIABLES"""
+"""LOAD CREDENTIALS"""
 
 
 def load_information():
@@ -64,47 +65,13 @@ def load_information():
     :return: A dictionary with keys for important variables needed to
              log in and authenticate.
     """
-    with open(FILE_ADDRESS_INFO, 'r', encoding='utf-8') as f:
+    with open(FILE_ADDRESS.info, 'r', encoding='utf-8') as f:
         info_data = f.read()
 
     return yaml.safe_load(info_data)
 
 
-# noinspection PyGlobalUndefined
-def load_logger():
-    """Define the logger to use and its parameters for formatting,
-    and declare it as a global variable for other functions.
-
-    :return: `None`.
-    """
-    global logger
-
-    # Set up the logger. By default only display INFO or higher levels.
-    log_format = '%(levelname)s: %(asctime)s - [Artemis] v{} %(message)s'
-    logformatter = log_format.format(VERSION_NUMBER)
-    logging.basicConfig(format=logformatter, level=logging.INFO)
-
-    # Set the logging time to UTC.
-    logging.Formatter.converter = time.gmtime
-    logger = logging.getLogger(__name__)
-
-    # Define the logging handler (the file to write to.)
-    # By default only log INFO level messages or higher.
-    handler = logging.FileHandler(FILE_ADDRESS_LOGS, 'a', 'utf-8')
-    handler.setLevel(logging.INFO)
-
-    # Set the time format in the logging handler.
-    d = "%Y-%m-%dT%H:%M:%SZ"
-    handler.setFormatter(logging.Formatter(logformatter, datefmt=d))
-    logger.addHandler(handler)
-
-    return
-
-
 """INITIAL SET-UP"""
-
-# Load the logger.
-load_logger()
 
 # Retrieve credentials data needed to log in from the YAML file.
 AUTH = SimpleNamespace(**load_information())
@@ -116,7 +83,7 @@ BOT_DISCLAIMER = ("\n\n---\n^Artemis: ^a ^moderation ^assistant ^for ^r/{0} ^| "
                   "^| [^Bot ^Info/Support](https://www.reddit.com/r/AssistantBOT/)")
 
 # This connects Artemis with its main SQLite database file.
-CONN_DATA = sqlite3.connect(FILE_ADDRESS_DATA)
+CONN_DATA = sqlite3.connect(FILE_ADDRESS.data)
 CURSOR_DATA = CONN_DATA.cursor()
 
 # We don't want to log common connection errors.
@@ -532,7 +499,7 @@ def database_extended_retrieve(subreddit_name):
 
     # The subreddit has extended data to convert into a dictionary.
     if result is not None:
-        return ast.literal_eval(result[2])
+        return literal_eval(result[2])
 
 
 def database_extended_insert(subreddit_name, new_data):
@@ -552,7 +519,7 @@ def database_extended_insert(subreddit_name, new_data):
     # The subreddit is in the monitored list with extended data.
     if result is not None:
         # Convert this extended data back into a dictionary.
-        extended_data_existing = ast.literal_eval(result[2])
+        extended_data_existing = literal_eval(result[2])
         working_dictionary = extended_data_existing.copy()
         working_dictionary.update(new_data)
 
@@ -581,7 +548,7 @@ def database_activity_retrieve(subreddit_name, month, activity_type):
 
     if result is not None:
         # Convert this back into a dictionary.
-        existing_data = ast.literal_eval(result[2])
+        existing_data = literal_eval(result[2])
         if activity_type in existing_data:
             return existing_data[activity_type]
         elif activity_type == "oldest":
@@ -621,7 +588,7 @@ def database_activity_insert(subreddit_name, month, activity_type, activity_data
     else:
         # We already have data for this. Note that we don't need to
         # update this if data's already there.
-        existing_data = ast.literal_eval(result[2])
+        existing_data = literal_eval(result[2])
 
         # Convert this back into a dictionary.
         # If we do not already have this activity type saved,
@@ -668,7 +635,7 @@ def database_subscribers_insert(subreddit_name, new_data):
     else:
         # We already have data for this subreddit, so we want to merge
         # the two together.
-        existing_dictionary = ast.literal_eval(result[1])
+        existing_dictionary = literal_eval(result[1])
         working_dictionary = existing_dictionary.copy()
         working_dictionary.update(new_data)
 
@@ -699,7 +666,7 @@ def database_subscribers_retrieve(subreddit_name):
 
     # We have data, let's turn the stored string into a dictionary.
     if result is not None:
-        return ast.literal_eval(result[1])
+        return literal_eval(result[1])
 
     return
 
@@ -734,7 +701,7 @@ def database_statistics_posts_insert(subreddit_name, new_data):
         logger.debug("Statistics Posts Insert: Added new posts data.")
     else:
         # There is already an entry for this subreddit in our database.
-        existing_dictionary = ast.literal_eval(result[1])
+        existing_dictionary = literal_eval(result[1])
         working_dictionary = existing_dictionary.copy()
 
         # Update the working dictionary with the new data.
@@ -772,7 +739,7 @@ def database_statistics_posts_retrieve(subreddit_name):
 
     # We have data, let's turn the stored string into a dictionary.
     if result is not None:
-        return ast.literal_eval(result[1])
+        return literal_eval(result[1])
 
     return
 
@@ -793,14 +760,14 @@ def database_takeout(subreddit_name):
     CURSOR_DATA.execute('SELECT * FROM subreddit_actions WHERE subreddit = ?', (subreddit_name,))
     result = CURSOR_DATA.fetchone()
     if result is not None:
-        master_dictionary['actions'] = ast.literal_eval(result[1])
+        master_dictionary['actions'] = literal_eval(result[1])
 
     # Package the activity.
     CURSOR_DATA.execute('SELECT * FROM subreddit_activity WHERE subreddit = ?', (subreddit_name,))
     results = CURSOR_DATA.fetchall()
     if results is not None:
         for entry in results:
-            contents = ast.literal_eval(entry[2])
+            contents = literal_eval(entry[2])
             master_dictionary['activity'][entry[1]] = contents
 
     # Package the posts.
@@ -817,10 +784,10 @@ def database_takeout(subreddit_name):
     CURSOR_DATA.execute("SELECT * FROM subreddit_traffic WHERE subreddit = ?", (subreddit_name,))
     traffic_result = CURSOR_DATA.fetchone()
     if traffic_result is not None:
-        master_dictionary['traffic'] = ast.literal_eval(traffic_result[1])
+        master_dictionary['traffic'] = literal_eval(traffic_result[1])
 
     # Convert to JSON.
-    master_json = json.dumps(master_dictionary, sort_keys=True, indent=4)
+    master_json = json_dumps(master_dictionary, sort_keys=True, indent=4)
     logger.info('Database Takeout: r/{} takeout data generated. '
                 "Length is {:,} characters.".format(subreddit_name, len(master_json)))
 
@@ -859,14 +826,14 @@ def database_cleanup():
     logger.info('Cleanup: Last {:,} updated database entries kept.'.format(updated_to_keep))
 
     # Clean up the logs. Keep only the last `lines_to_keep` lines.
-    with open(FILE_ADDRESS_LOGS, "r", encoding='utf-8') as f:
+    with open(FILE_ADDRESS.logs, "r", encoding='utf-8') as f:
         lines_entries = [line.rstrip("\n") for line in f]
 
     # If there are more lines than what we want to keep, truncate the
     # entire file to our limit.
     if len(lines_entries) > lines_to_keep:
         lines_entries = lines_entries[(-1 * lines_to_keep):]
-        with open(FILE_ADDRESS_LOGS, "w", encoding='utf-8') as f:
+        with open(FILE_ADDRESS.logs, "w", encoding='utf-8') as f:
             f.write("\n".join(lines_entries))
     logger.info('Cleanup: Last {:,} log entries kept.'.format(lines_to_keep))
 
@@ -1023,7 +990,7 @@ def subreddit_traffic_daily_estimator(subreddit_name):
     # Get the number of days in the month and calculate the estimated
     # amount for the month.
     year = datetime.datetime.now().year
-    days_in_month = calendar.monthrange(year, datetime.datetime.now().month)[1]
+    days_in_month = monthrange(year, datetime.datetime.now().month)[1]
     output_dictionary['average_uniques'] = average_uniques
     output_dictionary['average_pageviews'] = average_pageviews
     output_dictionary['estimated_pageviews'] = average_pageviews * days_in_month
@@ -1095,7 +1062,7 @@ def subreddit_traffic_recorder(subreddit_name):
         CONN_DATA.commit()
         logger.debug('Traffic Recorder: Traffic data for r/{} added.'.format(subreddit_name))
     else:
-        existing_dictionary = ast.literal_eval(result[1])
+        existing_dictionary = literal_eval(result[1])
         new_dictionary = existing_dictionary.copy()
         new_dictionary.update(traffic_dictionary)
 
@@ -1135,7 +1102,7 @@ def subreddit_traffic_retriever(subreddit_name):
     # If we have data, convert it back into a dictionary.
     # Otherwise, return `None.
     if results is not None:
-        traffic_dictionary = ast.literal_eval(results[1])
+        traffic_dictionary = literal_eval(results[1])
     else:
         return None
 
@@ -1830,7 +1797,7 @@ def subreddit_subscribers_redditmetrics_historical_recorder(subreddit_name, fetc
     # Access the site and retrieve its serialized data. If we encounter
     # an error loading the site page, return.
     try:
-        response = urllib.request.urlopen("http://redditmetrics.com/r/{}/".format(subreddit_name))
+        response = urlopen("http://redditmetrics.com/r/{}/".format(subreddit_name))
     except (HTTPError, URLError):
         return
 
@@ -2069,7 +2036,7 @@ def subreddit_top_collater(subreddit_name, month_string, last_month_mode=False):
     year = int(month_string.split('-')[0])
     month = int(month_string.split('-')[1])
     first_day = "{}-01".format(month_string)
-    last_day = "{}-{}".format(month_string, calendar.monthrange(year, month)[1])
+    last_day = "{}-{}".format(month_string, monthrange(year, month)[1])
 
     # Get the current month. We don't want to save the data if it is in
     # the current month, which is not over.
@@ -2671,7 +2638,7 @@ def subreddit_statistics_retriever(subreddit_name):
         if entry == date_month_convert_to_string(current_time):
             last_day = date_convert_to_string(current_time - 86400)
         else:
-            last_day = "{}-{}".format(entry, calendar.monthrange(year, month)[1])
+            last_day = "{}-{}".format(entry, monthrange(year, month)[1])
 
         # Get the main statistics data.
         month_header = "### {}\n\n#### Activity".format(entry)
@@ -3695,12 +3662,12 @@ def wikipage_get_all_actions():
 
     # Get a list of the action keys, and then create a dictionary with
     # each value set to zero.
-    all_keys = list(set().union(*[ast.literal_eval(x[1]) for x in results]))
+    all_keys = list(set().union(*[literal_eval(x[1]) for x in results]))
     main_dictionary = dict.fromkeys(all_keys, 0)
 
     # Iterate over each community.
     for community in results:
-        main_actions = ast.literal_eval(community[1])
+        main_actions = literal_eval(community[1])
         for action in main_dictionary.keys():
             if action in main_actions:
                 main_dictionary[action] += main_actions[action]
@@ -3745,7 +3712,7 @@ def wikipage_dashboard_collater(run_time=2.00):
     results = CURSOR_DATA.fetchall()
     for line in results:
         community = line[0]
-        extended_data = ast.literal_eval(line[2])
+        extended_data = literal_eval(line[2])
         index[community] = index_num
         index_num += 1
         addition_dates[community] = date_convert_to_string(extended_data['added_utc'])
@@ -4416,7 +4383,7 @@ def messaging_op_approved(subreddit_name, praw_submission, strict_mode=True, mod
         if not name_to_use:
             name_to_use = "Artemis"
         bye_phrase = extended_data.get('custom_goodbye',
-                                       random.choice(GOODBYE_PHRASES)).capitalize()
+                                       choice(GOODBYE_PHRASES)).capitalize()
         if not bye_phrase:
             bye_phrase = "Have a good day"
 
@@ -4525,7 +4492,7 @@ def main_error_log_(entry):
 
     # Open the file for the error log in appending mode.
     # Then add the error entry formatted our way.
-    with open(FILE_ADDRESS_ERROR, 'a+', encoding='utf-8') as f:
+    with open(FILE_ADDRESS.error, 'a+', encoding='utf-8') as f:
         error_date_format = datetime.datetime.utcnow().strftime("%Y-%m-%dT%I:%M:%SZ")
         bot_format = "Artemis v{}".format(VERSION_NUMBER)
         f.write("\n---------------\n{} ({})\n{}".format(error_date_format, bot_format, entry))
@@ -4603,7 +4570,7 @@ def main_counter_updater(subreddit_name, action_type, action_count=1):
         CURSOR_DATA.execute('INSERT INTO subreddit_actions VALUES (?, ?)', data_package)
         CONN_DATA.commit()
     else:  # We already have an entry recorded for this.
-        actions_dictionary = ast.literal_eval(result[1])  # Convert this back into a dictionary.
+        actions_dictionary = literal_eval(result[1])  # Convert this back into a dictionary.
         # Check the data in the database. Update it if it exists,
         # otherwise create a new dictionary item.
         if action_type in actions_dictionary:
@@ -4623,7 +4590,7 @@ def main_counter_updater(subreddit_name, action_type, action_count=1):
     result = CURSOR_DATA.fetchone()
 
     if result is not None:
-        master_actions = ast.literal_eval(result[1])
+        master_actions = literal_eval(result[1])
         current_day = date_convert_to_string(time.time())
 
         # Add the action to the daily count.
@@ -4662,7 +4629,7 @@ def main_counter_collater(subreddit_name):
     if result is not None:
         # We have a result. The second part is the dictionary
         # containing the action data.
-        action_data = ast.literal_eval(result[1])
+        action_data = literal_eval(result[1])
 
         # Form the table lines, including both the action and the
         # number of times it was done.
@@ -4745,7 +4712,7 @@ def main_backup_daily():
                     # happens to be a copying error, skip the file.
                     if os.path.isfile(full_file_name):
                         try:
-                            shutil.copy(full_file_name, new_folder_path)
+                            copy(full_file_name, new_folder_path)
                         except OSError:
                             pass
 
@@ -4812,6 +4779,26 @@ def main_login():
     global reddit
     global reddit_helper
     global CONFIG
+    global logger
+
+    # Set up the logger. By default only display INFO or higher levels.
+    log_format = '%(levelname)s: %(asctime)s - [Artemis] v{} %(message)s'
+    logformatter = log_format.format(VERSION_NUMBER)
+    logging.basicConfig(format=logformatter, level=logging.INFO)
+
+    # Set the logging time to UTC.
+    logging.Formatter.converter = time.gmtime
+    logger = logging.getLogger(__name__)
+
+    # Define the logging handler (the file to write to.)
+    # By default only log INFO level messages or higher.
+    handler = logging.FileHandler(FILE_ADDRESS.logs, 'a', 'utf-8')
+    handler.setLevel(logging.INFO)
+
+    # Set the time format in the logging handler.
+    d = "%Y-%m-%dT%H:%M:%SZ"
+    handler.setFormatter(logging.Formatter(logformatter, datefmt=d))
+    logger.addHandler(handler)
 
     # Authenticate the main connection.
     user_agent = 'Artemis v{} (u/{}), a moderation assistant written by u/{}.'
@@ -4968,8 +4955,8 @@ def main_timer(manual_start=False):
             userflair_check_list = list(sorted(userflair_check_list))
             logger.info('Main Timer: Checking the following subreddits '
                         'for userflairs: {}'.format(userflair_check_list))
-            userflair_thread = threading.Thread(target=wikipage_userflair_editor,
-                                                kwargs=dict(subreddit_list=userflair_check_list))
+            userflair_thread = Thread(target=wikipage_userflair_editor,
+                                      kwargs=dict(subreddit_list=userflair_check_list))
             userflair_thread.start()
 
     # Exit if not running userflairs.
@@ -5153,8 +5140,8 @@ def main_timer(manual_start=False):
     # http://blog.acipo.com/python-threading-arguments/
     if len(UPDATER_DICTIONARY) != 0:
         # Start the secondary wiki updating thread.
-        writing_thread = threading.Thread(target=wikipage_editor,
-                                          kwargs=dict(subreddit_dictionary=UPDATER_DICTIONARY))
+        writing_thread = Thread(target=wikipage_editor,
+                                kwargs=dict(subreddit_dictionary=UPDATER_DICTIONARY))
         writing_thread.start()
 
         # Clear the cached statistics data for the day as we don't
@@ -5177,7 +5164,7 @@ def main_timer(manual_start=False):
         # configuration data in a parallel thread.
         # `main_maintenance_daily` also inserts `all` into the
         # database to tell it's done with statistics.
-        secondary_thread = threading.Thread(target=main_maintenance_secondary)
+        secondary_thread = Thread(target=main_maintenance_secondary)
         secondary_thread.start()
         main_maintenance_daily()
 
@@ -5188,8 +5175,8 @@ def main_timer(manual_start=False):
         # Update the dashboard and finalize the widgets in the sidebar.
         wikipage_dashboard_collater(run_time=elapsed_process_time)
         action_data = wikipage_get_all_actions()
-        widget_thread = threading.Thread(target=widget_updater,
-                                         args=(action_data,))
+        widget_thread = Thread(target=widget_updater,
+                               args=(action_data,))
         widget_thread.start()
 
     return
@@ -5899,7 +5886,7 @@ def main_messaging(regular_cycle=True):
             # If the flair enforce state is `On`, send an example
             # message as a new message to modmail.
             if database_monitored_subreddits_enforce_status(new_subreddit):
-                example_text = ("*Should your subreddit choose to enforce post flairs:\n\n")
+                example_text = "*Should your subreddit choose to enforce post flairs*:\n\n"
                 example_text += messaging_example_collater(msg_subreddit)
                 example_subject = "[Artemis] Example Flair Enforcement Message"
                 msg_subreddit.message(example_subject, example_text)
@@ -6044,7 +6031,7 @@ def main_messaging(regular_cycle=True):
             if result is not None:
                 # We have saved extended data. We want to wipe out the
                 # settings.
-                extended_data_existing = ast.literal_eval(result[2])
+                extended_data_existing = literal_eval(result[2])
                 extended_keys = list(extended_data_existing.keys())
 
                 # Iterate over the default variable keys and remove them
@@ -6417,9 +6404,9 @@ def main_get_submissions():
             # they have questions, and add a goodbye phrase.
             moderator_mail_link = MSG_USER_FLAIR_MODMAIL_LINK.format(post_subreddit,
                                                                      post_permalink)
-            bye_phrase = sub_ext_data.get('custom_goodbye', random.choice(GOODBYE_PHRASES)).lower()
+            bye_phrase = sub_ext_data.get('custom_goodbye', choice(GOODBYE_PHRASES)).lower()
             if not bye_phrase:
-                bye_phrase = random.choice(GOODBYE_PHRASES).lower()
+                bye_phrase = choice(GOODBYE_PHRASES).lower()
 
             # Determine if we allow for flair selection via messaging.
             if 'flair' in current_permissions_list or 'all' in current_permissions_list:
@@ -6560,7 +6547,7 @@ def external_local_test(query):
         # Fetch all the subreddits we monitor and ask for
         # the number to test.
         number_to_test = int(input("\nEnter the number of tests to conduct: "))
-        random_subs = random.sample(database_monitored_subreddits_retrieve(), number_to_test)
+        random_subs = sample(database_monitored_subreddits_retrieve(), number_to_test)
         random_subs.sort()
         print("\n\n### Now testing: r/{}.\n".format(', r/'.join(random_subs)))
 
@@ -6599,6 +6586,8 @@ def external_artemis_monthly_statistics(month_string):
     list_of_actions = []
     list_of_lines = []
     list_of_posts = []
+    added_subreddits = {}
+    formatted_subreddits = []
     actions_total = {}
     posts = {}
 
@@ -6608,24 +6597,33 @@ def external_artemis_monthly_statistics(month_string):
     # Get the UNIX times that bound our month.
     year, month = month_string.split('-')
     start_time = date_convert_to_unix(month_string + '-01')
-    end_time = "{}-{}".format(month_string, calendar.monthrange(int(year), int(month))[1])
+    end_time = "{}-{}".format(month_string, monthrange(int(year), int(month))[1])
     end_time = date_convert_to_unix(end_time) + 86399
 
     # Get the subreddits that were added during this month.
     current_subreddits = database_monitored_subreddits_retrieve()
-    added_subreddits = []
     for post in reddit_helper.redditor(AUTH.username).submissions.new(limit=100):
         if "accepted" in post.title.lower() and end_time >= post.created_utc >= start_time:
-            added_subreddits.append(post.title.split('r/')[1])
-    added_subreddits = [x for x in added_subreddits if x in current_subreddits]
-    added_subreddits.sort()
-    added_section = "\n## Artemis Statistics for {}".format(month_string)
-    added_section += "\n\n### Added Subreddits\n\n* r/{}".format('\n* r/'.join(added_subreddits))
+            new_sub = post.title.split('r/')[1]
+            added_subreddits[new_sub] = post.over_18
+    for subreddit in added_subreddits:
+        if subreddit not in current_subreddits:
+            continue
+        else:
+            is_nsfw = added_subreddits[subreddit]
+            if is_nsfw:
+                formatted_subreddits.append(subreddit + " (NSFW)")
+            else:
+                formatted_subreddits.append(subreddit)
+    formatted_subreddits.sort(key=lambda y: y.lower())
+    added_section = "\n## Artemis Overall Statistics for {}".format(month_string)
+    added_section += ("\n\n### Added Subreddits\n\n"
+                      "* r/{}".format('\n* r/'.join(formatted_subreddits)))
 
     # Get the actions from during this time period.
     CURSOR_DATA.execute('SELECT * FROM subreddit_actions WHERE subreddit == ?', ('all',))
     result = CURSOR_DATA.fetchone()
-    actions = ast.literal_eval(result[1])
+    actions = literal_eval(result[1])
 
     # Iterate over the days and actions in the actions dictionaries.
     for day in actions:
@@ -6669,7 +6667,7 @@ def external_artemis_monthly_statistics(month_string):
     CURSOR_DATA.execute("SELECT * FROM subreddit_stats_posts")
     stats_results = CURSOR_DATA.fetchall()
     for entry in stats_results:
-        sub_data = ast.literal_eval(entry[1])
+        sub_data = literal_eval(entry[1])
         for day in list_of_days:
             if day not in sub_data:
                 continue
