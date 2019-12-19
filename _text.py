@@ -26,7 +26,8 @@ Thanks for letting me assist the r/{0} \
     * Just include the relevant **action word** in the **subject** of \
     a *modmail message*; anything in the message body is fine.
     * Artemis should *not* have the `mail` moderator permission, or \
-these action messages will get classified as modmail "discussions" and will be inaccessible to me.
+`full` moderator permissions, or these action messages will become \
+classified as modmail "discussions" and be inaccessible to me.
 
 | Action Word | Function                                                                          |
 |-------------|-----------------------------------------------------------------------------------|
