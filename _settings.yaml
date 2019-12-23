@@ -1,0 +1,93 @@
+# Number of seconds Artemis waits in between runs.
+wait: 30
+# We don't want to log common connection errors.
+conn_errors:
+    - 500 HTTP
+    - 502 HTTP
+    - 503 HTTP
+    - 504 HTTP
+    - RequestException
+# The day of the month for monthly statistics functions to run.
+# And the day of the month for monthly traffic functions to run.
+day_action: 1
+day_traffic: 4
+# The hour daily functions will run (midnight UTC in this case).
+action_time: 0
+# The number of Pushshift entries to display in statistics pages.
+num_display: 5
+# Minimum and maximum ages (in secs) for Artemis to act on posts.
+# The first variable is often used as a baseline for other times.
+min_monitor_sec: 300
+max_monitor_sec: 86400
+# A subreddit has to have at least this many subscribers for statistics,
+# and a minimum default amount for userflair statistics.
+min_s_stats: 25
+min_s_userflair: 50000
+# The number of data entries to store, and how many posts to pull.
+entries_to_keep: 8000
+max_get_posts: 500
+min_get_posts: 175
+# These are major subscriber milestones that a subreddit reaches.
+milestones:
+    - 10
+    - 20
+    - 25
+    - 50
+    - 100
+    - 250
+    - 500
+    - 750
+    - 1000
+    - 2000
+    - 2500
+    - 3000
+    - 4000
+    - 5000
+    - 6000
+    - 7000
+    - 7500
+    - 8000
+    - 9000
+    - 10000
+    - 15000
+    - 20000
+    - 25000
+    - 30000
+    - 40000
+    - 50000
+    - 60000
+    - 70000
+    - 75000
+    - 80000
+    - 90000
+    - 100000
+    - 150000
+    - 200000
+    - 250000
+    - 300000
+    - 400000
+    - 500000
+    - 600000
+    - 700000
+    - 750000
+    - 800000
+    - 900000
+    - 1000000
+    - 1250000
+    - 1500000
+    - 1750000
+    - 2000000
+    - 2500000
+    - 3000000
+    - 4000000
+    - 5000000
+    - 6000000
+    - 7000000
+    - 7500000
+    - 8000000
+    - 9000000
+    - 10000000
+    - 15000000
+    - 20000000
+    - 25000000
+    - 30000000
