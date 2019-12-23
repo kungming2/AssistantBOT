@@ -44,91 +44,45 @@ from _text import *
 
 """INITIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "1.7.13 Hazel"
+VERSION_NUMBER = "1.7.14 Hazel"
 
 # Define the location of the main files Artemis uses.
 # They should all be in the same folder as the Python script itself.
 SOURCE_FOLDER = os.path.dirname(os.path.realpath(__file__))
 FILE_ADDRESS = {'data': "/_data.db", 'error': "/_error.md",
-                "logs": "/_logs.md", "info": "/_info.yaml"}
+                "logs": "/_logs.md", "info": "/_info.yaml", "settings": "/_settings.yaml"}
 for file_type, file_address in FILE_ADDRESS.items():
     FILE_ADDRESS[file_type] = SOURCE_FOLDER + file_address
 FILE_ADDRESS = SimpleNamespace(**FILE_ADDRESS)
 
-"""LOAD CREDENTIALS"""
+"""LOAD CREDENTIALS & SETTINGS"""
 
 
 def load_information():
     """Function that takes information on login/OAuth access from an
-    external YAML file and loads it as a dictionary.
+    external YAML file and loads it as a dictionary. It also loads the
+    settings as a dictionary. Both are returned in a tuple.
 
-    :return: A dictionary with keys for important variables needed to
-             log in and authenticate.
+    :return: A tuple containing two dictionaries, one for authentication
+             data and the other with settings.
     """
     with open(FILE_ADDRESS.info, 'r', encoding='utf-8') as f:
-        info_data = f.read()
+        auth_data = yaml.safe_load(f.read())
+    with open(FILE_ADDRESS.settings, 'r', encoding='utf-8') as f:
+        settings_data = yaml.safe_load(f.read())
 
-    return yaml.safe_load(info_data)
+    return auth_data, settings_data
 
 
-"""INITIAL SET-UP"""
+"""INITIAL SETUP"""
 
 # Retrieve credentials data needed to log in from the YAML file.
-AUTH = SimpleNamespace(**load_information())
-
-# Number of seconds Artemis waits in between runs.
-WAIT = 30
-BOT_DISCLAIMER = ("\n\n---\n^Artemis: ^a ^moderation ^assistant ^for ^r/{0} ^| "
-                  "[^Contact ^r/{0} ^mods](https://www.reddit.com/message/compose?to=%2Fr%2F{0}) "
-                  "^| [^Bot ^Info/Support](https://www.reddit.com/r/AssistantBOT/)")
+AUTH = SimpleNamespace(**load_information()[0])
+SETTINGS = SimpleNamespace(**load_information()[1])
 
 # This connects Artemis with its main SQLite database file.
 CONN_DATA = sqlite3.connect(FILE_ADDRESS.data)
 CURSOR_DATA = CONN_DATA.cursor()
-
-# We don't want to log common connection errors.
-CONNECTION_ERRORS = ['500 HTTP', '502 HTTP', '503 HTTP', '504 HTTP', 'RequestException']
-
-
-"""BASIC VARIABLES"""
-
-# These are major subscriber milestones that a subreddit reaches.
-SUBSCRIBER_MILESTONES = [10, 20, 25, 50, 100, 250, 500, 750,
-                         1000, 2000, 2500, 3000, 4000, 5000, 6000,
-                         7000, 7500, 8000, 9000, 10000, 15000, 20000,
-                         25000, 30000, 40000, 50000, 60000, 70000,
-                         75000, 80000, 90000, 100000, 150000, 200000,
-                         250000, 300000, 400000, 500000, 600000, 700000,
-                         750000, 800000, 900000, 1000000, 1250000,
-                         1500000, 1750000, 2000000, 2500000, 3000000,
-                         4000000, 5000000, 6000000, 7000000, 7500000,
-                         8000000, 9000000, 10000000, 15000000, 20000000,
-                         25000000, 30000000]
-
-# The day of the month for monthly statistics functions to run.
-MONTH_ACTION_DAY = 1
-MONTH_TRAFFIC_DAY = 4
-
-# The hour daily functions will run (midnight UTC in this case).
-ACTION_TIME = 0
-
-# The number of Pushshift entries to display in statistics pages.
-NUMBER_TO_RETURN = 5
-
-# Minimum and maximum ages (in secs) for Artemis to act on posts.
-# The first variable is often used as a baseline for other times.
-MINIMUM_AGE_TO_MONITOR = 300
-MAXIMUM_AGE_TO_MONITOR = 86400
-
-# A subreddit has to have at least this many subscribers for statistics,
-# and a minimum default amount for userflair statistics.
-MINIMUM_SUBSCRIBERS = 25
-MINIMUM_SUBSCRIBERS_USERFLAIR = 50000
-
-# The number of data entries to store, and how many posts to pull.
-ENTRIES_TO_KEEP = 8000
-POSTS_BROADER_LIMIT = 500
-POSTS_MINIMUM_LIMIT = 175
 
 # Global dictionary that stores formatted data for statistics pages,
 # which is cleared after the daily statistics run.
@@ -797,7 +751,7 @@ def database_takeout(subreddit_name):
 def database_cleanup():
     """This function cleans up the `posts_processed` table and keeps
     only a certain amount left in order to prevent it from becoming
-    too large. This keeps the newest `ENTRIES_TO_KEEP` post IDs
+    too large. This keeps the newest `SETTINGS.entries_to_keep` post IDs
     and deletes the oldest ones.
 
     This function also truncates the events log to keep it at
@@ -806,16 +760,17 @@ def database_cleanup():
     :return: `None`.
     """
     # How many lines of log entries we wish to preserve in the logs.
-    lines_to_keep = int(ENTRIES_TO_KEEP / 2)
-    updated_to_keep = int(ENTRIES_TO_KEEP / 5)
+    lines_to_keep = int(SETTINGS.entries_to_keep / 2)
+    updated_to_keep = int(SETTINGS.entries_to_keep / 5)
 
     # Access the `processed` database, order the posts by oldest first,
     # and then only keep the above number of entries.
     delete_command = ("DELETE FROM posts_processed WHERE post_id NOT IN "
                       "(SELECT post_id FROM posts_processed ORDER BY post_id DESC LIMIT ?)")
-    CURSOR_DATA.execute(delete_command, (ENTRIES_TO_KEEP,))
+    CURSOR_DATA.execute(delete_command, (SETTINGS.entries_to_keep,))
     CONN_DATA.commit()
-    logger.info('Cleanup: Last {:,} processed database entries kept.'.format(ENTRIES_TO_KEEP))
+    logger.info('Cleanup: Last {:,} processed database '
+                'entries kept.'.format(SETTINGS.entries_to_keep))
 
     # Access the `updated` database, order the entries by their date,
     # and then only keep the above number of entries.
@@ -1506,7 +1461,7 @@ def subreddit_subscribers_estimator(subreddit_name):
 
     # Iterate over the milestones. Calculate the next milestone this
     # subreddit will reach.
-    for milestone in SUBSCRIBER_MILESTONES:
+    for milestone in SETTINGS.milestones:
         if milestone > current_number:
             next_milestone = milestone
             break
@@ -1587,7 +1542,7 @@ def subreddit_subscribers_milestone_chart_former(subreddit_name):
 
     # Get the last number of recorded subscribers.
     current_subscribers = dictionary_total[list(sorted(dictionary_total.keys()))[-1]]
-    milestones_to_check = [x for x in SUBSCRIBER_MILESTONES if x <= current_subscribers]
+    milestones_to_check = [x for x in SETTINGS.milestones if x <= current_subscribers]
 
     # We iterate over the data we have, starting with the OLDEST date
     # we have data for.
@@ -1876,7 +1831,7 @@ def subreddit_pushshift_oldest_retriever(subreddit_name):
 
         # Get the data from Pushshift as JSON.
         retrieved_data = subreddit_pushshift_access(api_search_query.format(subreddit_name,
-                                                                            NUMBER_TO_RETURN))
+                                                                            SETTINGS.num_display))
 
         # If there was a problem with interpreting JSON data, return an
         # error message.
@@ -1910,7 +1865,7 @@ def subreddit_pushshift_oldest_retriever(subreddit_name):
 
     # Save it to the database if there isn't a previous record of it and
     # if we have data.
-    if result is None and len(oldest_data) != 0 and len(oldest_data) >= NUMBER_TO_RETURN:
+    if result is None and len(oldest_data) != 0 and len(oldest_data) >= SETTINGS.num_display:
         database_activity_insert(subreddit_name, 'oldest', 'oldest', oldest_data)
 
     return oldest_section
@@ -2069,7 +2024,7 @@ def subreddit_top_collater(subreddit_name, month_string, last_month_mode=False):
 
     # Format the dictionary data as a Markdown table, ordered with the
     # highest scoring post first.
-    for item in score_sorted[:NUMBER_TO_RETURN]:
+    for item in score_sorted[:SETTINGS.num_display]:
         my_score = item[0]
         my_id = item[1]
         my_date = date_convert_to_string(dictionary_data[my_id]['created_utc'])
@@ -2085,8 +2040,9 @@ def subreddit_top_collater(subreddit_name, month_string, last_month_mode=False):
         # Trim the dictionary data if needed. We don't want to store too
         # much, only the top * 2 submissions.
         # If this is not in the top items, delete it from dictionary.
+        store_limit = SETTINGS.num_display * 2
         for submission_id in list(dictionary_data.keys()):
-            if not any(submission_id == entry[1] for entry in score_sorted[:NUMBER_TO_RETURN * 2]):
+            if not any(submission_id == entry[1] for entry in score_sorted[:store_limit]):
                 del dictionary_data[submission_id]
 
         # Store the dictionary data to our database.
@@ -2206,7 +2162,7 @@ def subreddit_pushshift_time_authors_collater(input_dictionary, search_type):
     # If we have entries for this month, format everything together.
     # Otherwise, return a section noting there's nothing.
     if len(formatted_lines) > 0:
-        body = header + '\n'.join(formatted_lines[:NUMBER_TO_RETURN])
+        body = header + '\n'.join(formatted_lines[:SETTINGS.num_display])
     else:
         no_section = "* It appears that there were no {}s during this period.".format(search_type)
         body = header + no_section
@@ -2312,7 +2268,7 @@ def subreddit_pushshift_activity_collater(input_dictionary, search_type, num_day
         average_line = str(unavailable)
 
     # Find the busiest days and add those days to a list with the date.
-    most_posts = sorted(zip(input_dictionary.values()), reverse=True)[:NUMBER_TO_RETURN]
+    most_posts = sorted(zip(input_dictionary.values()), reverse=True)[:SETTINGS.num_display]
     for number in most_posts:
         for date, count in input_dictionary.items():
             if number[0] == count and date not in str(days_highest):  # Get the unique date.
@@ -2977,7 +2933,7 @@ def wikipage_creator(subreddit_name):
         statistics_test = r.wiki[page_name].content_md
 
         # If the page exists, then we get the PRAW Wikipage object here.
-        statistics_wikipage = r.wiki[page_name]
+        stats_wikipage = r.wiki[page_name]
         log_message = ("Wikipage Creator: Statistics wiki page for r/{} "
                        "already exists with length {}.")
         logger.debug(log_message.format(subreddit_name, statistics_test))
@@ -2985,33 +2941,33 @@ def wikipage_creator(subreddit_name):
         # There is no wiki page for Artemis's statistics. Let's create
         # the page if it doesn't exist. Also add a message if statistics
         # gathering will be paused due to the subscriber count being
-        # below the minimum (`MINIMUM_SUBSCRIBERS`).
+        # below the minimum (`SETTINGS.min_s_stats`).
         try:
             reason_msg = "Creating the u/{} statistics wiki page.".format(AUTH.username)
-            statistics_wikipage = r.wiki.create(name=page_name,
-                                                content=WIKIPAGE_BLANK.format(MINIMUM_SUBSCRIBERS),
-                                                reason=reason_msg)
+            stats_wikipage = r.wiki.create(name=page_name,
+                                           content=WIKIPAGE_BLANK.format(SETTINGS.min_s_stats),
+                                           reason=reason_msg)
 
             # Remove the statistics wiki page from the public list and
             # only let moderators see it. Also add Artemis as a approved
             # submitter/editor for the wiki.
-            statistics_wikipage.mod.update(listed=False, permlevel=2)
-            statistics_wikipage.mod.add(AUTH.username)
+            stats_wikipage.mod.update(listed=False, permlevel=2)
+            stats_wikipage.mod.add(AUTH.username)
             logger.info("Wikipage Creator: Created new statistics "
                         "wiki page for r/{}.".format(subreddit_name))
         except prawcore.exceptions.NotFound:
             # There is a wiki on the subreddit itself,
             # but we can't edit it.
-            statistics_wikipage = None
+            stats_wikipage = None
             logger.info("Wikipage Creator: Wiki is present, "
                         "but insufficient privileges to edit wiki on r/{}.".format(subreddit_name))
     except prawcore.exceptions.Forbidden:
         # The wiki doesn't exist and Artemis can't create it.
-        statistics_wikipage = None
+        stats_wikipage = None
         logger.info("Wikipage Creator: Insufficient mod privileges "
                     "to edit wiki on r/{}.".format(subreddit_name))
 
-    return statistics_wikipage
+    return stats_wikipage
 
 
 def wikipage_collater(subreddit_name):
@@ -3101,11 +3057,11 @@ def wikipage_config(subreddit_name):
     # Check the subreddit subscriber number. This is only used in
     # generating the initial default page. If there are enough
     # subscribers for userflair statistics, replace the boolean.
-    if r.subscribers > MINIMUM_SUBSCRIBERS_USERFLAIR:
-        page_template = CONFIG_DEFAULT.replace('userflair_statistics: False',
-                                               'userflair_statistics: True')
+    if r.subscribers > SETTINGS.min_s_userflair:
+        page_template = ADV_DEFAULT.replace('userflair_statistics: False',
+                                            'userflair_statistics: True')
     else:
-        page_template = str(CONFIG_DEFAULT)
+        page_template = str(ADV_DEFAULT)
 
     # Check if the page is there and try and get the text of the page.
     # This will fail if the page does NOT exist.
@@ -3132,7 +3088,7 @@ def wikipage_config(subreddit_name):
     # see if we can get proper data from it.
     # If it's a newly created page then the default data will be what
     # it gets from the page.
-    default_data = yaml.safe_load(CONFIG_DEFAULT)
+    default_data = yaml.safe_load(ADV_DEFAULT)
     # A list of the default variables (which are keys).
     default_vs_keys = list(default_data.keys())
     default_vs_keys.sort()
@@ -3754,7 +3710,7 @@ def wikipage_dashboard_collater(run_time=2.00):
 
     # Note down how long it took and tabulate some overall data.
     num_of_enforced_subs = len(database_monitored_subreddits_retrieve(True))
-    num_of_stats_enabled_subs = len([x for x in total_subscribers if x >= MINIMUM_SUBSCRIBERS])
+    num_of_stats_enabled_subs = len([x for x in total_subscribers if x >= SETTINGS.min_s_stats])
     percentage_enforced = num_of_enforced_subs / len(list_of_subs)
     percentage_gathered = num_of_stats_enabled_subs / len(list_of_subs)
     average_subscribers = int(sum(total_subscribers) / len(total_subscribers))
@@ -4826,7 +4782,7 @@ def main_login():
 def main_timer(manual_start=False):
     """This function helps time certain routines to be done only at
     specific times or days of the month.
-    ACTION_TIME: Defined above, usually at midnight UTC.
+    SETTINGS.action_time: Defined above, usually at midnight UTC.
     Daily at midnight: Retrieve number of subscribers.
                        Record post statistics and post them to the wiki.
                        Backup the data files to Box.
@@ -4856,8 +4812,8 @@ def main_timer(manual_start=False):
     # Define the alternate times and dates for userflair updates.
     # This is run at a varying time period in order to avoid
     # too many API calls at the same time.
-    userflair_update_days = [MONTH_ACTION_DAY, MONTH_ACTION_DAY + 14]
-    userflair_update_time = ACTION_TIME + 12
+    userflair_update_days = [SETTINGS.day_action, SETTINGS.day_action + 14]
+    userflair_update_time = SETTINGS.action_time + 12
 
     # Update the operation status widget at the third of each hour
     # This is done before any exits.
@@ -4895,7 +4851,7 @@ def main_timer(manual_start=False):
         if current_hour == userflair_update_time and not userflair_done:
             exit_early = False
     if exit_early:
-        if current_hour <= (ACTION_TIME + action_window) and not all_stats_done:
+        if current_hour <= (SETTINGS.action_time + action_window) and not all_stats_done:
             exit_early = False
         if manual_start:
             exit_early = False
@@ -4932,7 +4888,7 @@ def main_timer(manual_start=False):
         # amount of subscribers needed OR if they have manually opted in
         # to getting userflair statistics, or if they have opted out.
         for sub in monitored_list:
-            if database_last_subscriber_count(sub) > MINIMUM_SUBSCRIBERS_USERFLAIR:
+            if database_last_subscriber_count(sub) > SETTINGS.min_s_userflair:
                 userflair_check_list.append(sub)
                 if 'userflair_statistics' in database_extended_retrieve(sub):
                     if not database_extended_retrieve(sub)['userflair_statistics']:
@@ -4940,7 +4896,10 @@ def main_timer(manual_start=False):
             elif 'userflair_statistics' in database_extended_retrieve(sub):
                 if database_extended_retrieve(sub)['userflair_statistics']:
                     userflair_check_list.append(sub)
-                    main_counter_updater(sub, 'Updated userflair statistics')
+
+        # Update our counters.
+        for sub in userflair_check_list:
+            main_counter_updater(sub, 'Updated userflair statistics')
 
         # Insert an entry into the database, telling us that it's done.
         # This is technically a 'dummy' subreddit, named `userflair`
@@ -5005,7 +4964,7 @@ def main_timer(manual_start=False):
 
         # If the cycle time is exceeded, save the dictionary to cache
         # and do a quick pull for new submissions.
-        if cycle_current_time - cycle_initialize_time > (MINIMUM_AGE_TO_MONITOR * 1.5):
+        if cycle_current_time - cycle_initialize_time > (SETTINGS.min_monitor_sec * 1.5):
             # Reset the initialize time and save the current state of
             # the updater dictionary to cache.
             logger.info('Main Timer: Cycle RESET started.\n')
@@ -5082,7 +5041,7 @@ def main_timer(manual_start=False):
         # If it's a certain day of the month, also get the traffic data.
         # Traffic data is retrieved twice in order to account for any
         # gaps that might occur due to the site issues.
-        if int(current_date_only) in [MONTH_ACTION_DAY, MONTH_TRAFFIC_DAY]:
+        if int(current_date_only) in [SETTINGS.day_action, SETTINGS.day_traffic]:
             subreddit_traffic_recorder(community)
 
         # SKIP CHECK: See if a subreddit either
@@ -5104,7 +5063,7 @@ def main_timer(manual_start=False):
         # If there are too few subscribers to record statistics,
         # or the statistics status is frozen, record the number of
         # subscribers and continue without recording statistics.
-        if subreddit_current_sub_count < MINIMUM_SUBSCRIBERS or freeze:
+        if subreddit_current_sub_count < SETTINGS.min_s_stats or freeze:
             subreddit_subscribers_recorder(community)
             logger.info('Main Timer: COMPLETED: r/{} below minimum or frozen. '
                         'Recorded subscribers.'.format(community))
@@ -5112,7 +5071,7 @@ def main_timer(manual_start=False):
 
         # If it's a certain day of the month (the first), also get the
         # top posts from the last month and save them.
-        if int(current_date_only) == MONTH_ACTION_DAY:
+        if int(current_date_only) == SETTINGS.day_action:
             last_month_dt = (datetime.date.today().replace(day=1) - datetime.timedelta(days=1))
             last_month_string = last_month_dt.strftime("%Y-%m")
             subreddit_top_collater(community, last_month_string, last_month_mode=True)
@@ -5153,7 +5112,7 @@ def main_timer(manual_start=False):
 
     # Recheck for oldest submissions once a month for those subreddits
     # that lack them, recheck on the same as the traffic day.
-    if int(current_date_only) == MONTH_TRAFFIC_DAY:
+    if int(current_date_only) == SETTINGS.day_traffic:
         main_recheck_oldest()
 
     # If we are deployed on Linux (Raspberry Pi), also run other
@@ -5473,7 +5432,7 @@ def main_post_approval(submission, template_id=None):
     num_reports = submission.num_reports
 
     # Check if the age is older than our limit.
-    if int(time.time()) - created > MAXIMUM_AGE_TO_MONITOR:
+    if int(time.time()) - created > SETTINGS.max_monitor_sec:
         logger.info('Post Approval: Post `{}` is 24+ hours old.'.format(post_id))
         can_process = False
 
@@ -5815,9 +5774,9 @@ def main_messaging(regular_cycle=True):
 
             # Check for the minimum subscriber count.
             # If it's below the minimum, turn off statistics gathering.
-            if subscriber_count < MINIMUM_SUBSCRIBERS:
-                subscribers_until_minimum = MINIMUM_SUBSCRIBERS - subscriber_count
-                minimum_section = MSG_MOD_INIT_MINIMUM.format(MINIMUM_SUBSCRIBERS,
+            if subscriber_count < SETTINGS.min_s_stats:
+                subscribers_until_minimum = SETTINGS.min_s_stats - subscriber_count
+                minimum_section = MSG_MOD_INIT_MINIMUM.format(SETTINGS.min_s_stats,
                                                               subscribers_until_minimum)
                 logger.info("Messaging: r/{} subscribers below minimum.".format(new_subreddit))
             else:
@@ -6036,7 +5995,7 @@ def main_messaging(regular_cycle=True):
 
                 # Iterate over the default variable keys and remove them
                 # from the extended data in order to reset the info.
-                default_vs_keys = list(yaml.safe_load(CONFIG_DEFAULT).keys())
+                default_vs_keys = list(yaml.safe_load(ADV_DEFAULT).keys())
                 for key in extended_keys:
                     if key in default_vs_keys:
                         del extended_data_existing[key]  # Delete the settings.
@@ -6050,11 +6009,11 @@ def main_messaging(regular_cycle=True):
                 # number, to make sure of the accurate template.
                 # If there are enough subscribers for userflair stats,
                 # replace the relevant section to disable it..
-                if msg_subreddit.subscribers > MINIMUM_SUBSCRIBERS_USERFLAIR:
-                    page_template = CONFIG_DEFAULT.replace('userflair_statistics: False',
-                                                           'userflair_statistics: True')
+                if msg_subreddit.subscribers > SETTINGS.min_s_userflair:
+                    page_template = ADV_DEFAULT.replace('userflair_statistics: False',
+                                                        'userflair_statistics: True')
                 else:
-                    page_template = str(CONFIG_DEFAULT)
+                    page_template = str(ADV_DEFAULT)
                 config_page = msg_subreddit.wiki["{}_config".format(AUTH.username)]
                 config_page.edit(content=page_template,
                                  reason='Reverting configuration per mod request.')
@@ -6138,8 +6097,7 @@ def main_messaging(regular_cycle=True):
 def main_flair_checker():
     """This function checks the filtered database.
     It also uses `.info()` to retrieve PRAW submission objects,
-    which is about 40 times faster
-    than fetching one ID individually.
+    which is about 40 times faster than fetching one ID individually.
 
     This function will also clean the database of posts that are older
     than 24 hours by checking their timestamp.
@@ -6154,18 +6112,18 @@ def main_flair_checker():
 
     # If we have results, iterate over them, checking for age.
     # Note: Each result is a tuple with the ID in [0] and the
-    # created Unix time in [1] of the tuple.
+    # created Unix UTC time in [1] of the tuple.
     if len(results) != 0:
         for result in results:
             short_id = result[0]
-            if int(time.time()) - result[1] > MAXIMUM_AGE_TO_MONITOR:
+            if int(time.time()) - result[1] > SETTINGS.max_monitor_sec:
                 database_delete_filtered_post(short_id)
                 logger.debug('Flair Checker: Deleted `{}` as it is too old.'.format(short_id))
             else:
                 fullname_ids.append("t3_{}".format(short_id))
 
-        # We have posts to look over. Get their fullname IDs then
-        # convert the fullname IDs to PRAW objects with `.info()`.
+        # We have posts to look over. Convert the fullname IDs to PRAW
+        # objects with `.info()`.
         reddit_submissions = reddit.info(fullnames=fullname_ids)
 
         # Iterate over our PRAW submission objects.
@@ -6191,41 +6149,42 @@ def main_get_posts_frequency():
 
     # If not deployed on Linux, we can use a set number instead.
     if not sys.platform.startswith('linux'):
-        NUMBER_TO_FETCH = POSTS_MINIMUM_LIMIT
+        NUMBER_TO_FETCH = SETTINGS.min_get_posts
         logger.info('Get Posts Frequency: Testing on `{}`. '
                     'Limit set to minimum.'.format(sys.platform))
         return
 
     # 15 minutes is our interval to test for.
     # Begin processing from the oldest post.
-    time_interval = MINIMUM_AGE_TO_MONITOR * 3
-    posts = list(reddit.subreddit('mod').new(limit=POSTS_BROADER_LIMIT))
+    time_interval = SETTINGS.min_monitor_sec * 3
+    posts = list(reddit.subreddit('mod').new(limit=SETTINGS.max_get_posts))
     posts.reverse()
 
     # Take the creation time of the oldest post and calculate the
     # interval between that and now. Then get the average time period
     # for posts to come in and the nominal amount of posts that come in
     # within our interval.
-    interval_between_posts = (int(time.time()) - int(posts[0].created_utc)) / POSTS_BROADER_LIMIT
+    time_difference = (int(time.time()) - int(posts[0].created_utc))
+    interval_between_posts = time_difference / SETTINGS.max_get_posts
     boundary_posts = int(time_interval / interval_between_posts)
 
     # Next we determine how many posts Artemis should *fetch* in a 15
     # minute period defined by the data. That number is 2 times the
     # earlier number in order to account for overlap.
-    if boundary_posts < POSTS_BROADER_LIMIT:
+    if boundary_posts < SETTINGS.max_get_posts:
         NUMBER_TO_FETCH = int(boundary_posts * 2)
     else:
-        NUMBER_TO_FETCH = POSTS_BROADER_LIMIT
+        NUMBER_TO_FETCH = SETTINGS.max_get_posts
 
     # If we need to adjust the broader limit, note that. Also make sure
     # the number to fetch is always at least our minimum.
-    if POSTS_BROADER_LIMIT < NUMBER_TO_FETCH:
+    if SETTINGS.max_get_posts < NUMBER_TO_FETCH:
         logger.info('Get Posts Frequency: The broader limit of {} posts'
-                    'may need to be higher.'.format(POSTS_BROADER_LIMIT))
-    elif NUMBER_TO_FETCH < POSTS_MINIMUM_LIMIT:
-        NUMBER_TO_FETCH = int(POSTS_MINIMUM_LIMIT)
+                    'may need to be higher.'.format(SETTINGS.max_get_posts))
+    elif NUMBER_TO_FETCH < SETTINGS.min_get_posts:
+        NUMBER_TO_FETCH = int(SETTINGS.min_get_posts)
         logger.info('Get Posts Frequency: Limit set to '
-                    'minimum limit of {} posts.'.format(POSTS_MINIMUM_LIMIT))
+                    'minimum limit of {} posts.'.format(SETTINGS.min_get_posts))
     else:
         logger.info('Get Posts Frequency: {} posts / {} minutes.'.format(NUMBER_TO_FETCH,
                                                                          int(time_interval / 60)))
@@ -6277,6 +6236,7 @@ def main_get_submissions():
     for section in sections:
         posts += list(reddit.subreddit(section).new(limit=NUMBER_TO_FETCH))
     posts.sort(key=lambda x: x.id.lower())
+    processed = []  # List containing processed IDs as tuples.
 
     # Iterate over the fetched posts. We have a number of built-in
     # checks to reduce the amount of processing.
@@ -6312,18 +6272,18 @@ def main_get_submissions():
         # and less than our maximum. We give OPs `minimum_age` seconds
         # to choose a flair. If it's a post that's younger than this,
         # skip.
-        if time_difference < MINIMUM_AGE_TO_MONITOR:
-            logger.debug('Get: Post {} is < {} seconds old. Skip.'.format(post_id,
-                                                                          MINIMUM_AGE_TO_MONITOR))
+        if time_difference < SETTINGS.min_monitor_sec:
+            logger.debug('Get: Post {} is < {}s old. Skip.'.format(post_id,
+                                                                   SETTINGS.min_monitor_sec))
             continue
 
         # If the time difference is greater than
-        # `MAXIMUM_AGE_TO_MONITOR / 4` seconds, skip (at 6 hours).
+        # `SETTINGS.max_monitor_sec / 4` seconds, skip (at 6 hours).
         # Artemis may have just been invited to moderate a subreddit; it
         # should not act on every old post.
-        elif time_difference > (MAXIMUM_AGE_TO_MONITOR / 4):
+        elif time_difference > (SETTINGS.max_monitor_sec / 4):
             msg = 'Get: Post {} is over {} seconds old. Skipped.'
-            logger.debug(msg.format(post_id, (MAXIMUM_AGE_TO_MONITOR / 4)))
+            logger.debug(msg.format(post_id, (SETTINGS.max_monitor_sec / 4)))
             continue
 
         # Define basic attributes of the post.
@@ -6340,9 +6300,9 @@ def main_get_submissions():
         else:
             post_title = post.title.replace("]", r"\]")
 
-        # Insert this post's ID into the database.
-        CURSOR_DATA.execute('INSERT INTO posts_processed VALUES(?)', (post_id,))
-        CONN_DATA.commit()
+        # Insert this post's ID into the processed list for insertion.
+        # This is done as a tuple.
+        processed.append((post_id,))
         log_line = ('Get: New Post "{}" on r/{} (https://redd.it/{}), flaired with "{}". '
                     'Added to processed database.')
         logger.info(log_line.format(post_title, post_subreddit, post_id, post_flair_text))
@@ -6477,6 +6437,14 @@ def main_get_submissions():
             # This post has a flair. We don't need to process it.
             logger.debug('Get: >> Post `{}` already has a flair. Doing nothing.'.format(post_id))
             continue
+
+    # At the end, insert all the processed IDs into the database from
+    # the `processed` list at once.
+    if processed:
+        CURSOR_DATA.executemany('INSERT INTO posts_processed VALUES (?)', processed)
+        CONN_DATA.commit()
+        logger.info('Get: Insertion of {} post IDs into processed '
+                    'database COMPLETE.'.format(len(processed)))
 
     return
 
@@ -6767,7 +6735,7 @@ else:
     REGULAR_MODE = True if sys.platform.startswith('linux') else False
 
 # This is the regular loop for Artemis, running main functions in
-# sequence while taking a `WAIT` break in between.
+# sequence while taking a `SETTINGS.wait` break in between.
 try:
     while REGULAR_MODE:
         try:
@@ -6783,10 +6751,10 @@ try:
             error_entry = "\n> {} \n\n".format(e)
             error_entry += traceback.format_exc()
             logger.error(error_entry)
-            if not any(keyword in error_entry for keyword in CONNECTION_ERRORS):
+            if not any(keyword in error_entry for keyword in SETTINGS.conn_errors):
                 main_error_log_(error_entry)
 
-        time.sleep(WAIT)
+        time.sleep(SETTINGS.wait)
 except KeyboardInterrupt:
     # Manual termination of the script with Ctrl-C.
     logger.info('Manual user shutdown.')
