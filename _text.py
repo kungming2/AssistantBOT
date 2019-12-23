@@ -4,6 +4,10 @@
 """A collection of responses and text used by Artemis to moderators,
 regular users, and wikipages."""
 
+BOT_DISCLAIMER = ("\n\n---\n^Artemis: ^a ^moderation ^assistant ^for ^r/{0} ^| "
+                  "[^Contact ^r/{0} ^mods](https://www.reddit.com/message/compose?to=%2Fr%2F{0}) "
+                  "^| [^Bot ^Info/Support](https://www.reddit.com/r/AssistantBOT/)")
+
 # These are responses to moderator actions.
 MSG_MOD_INIT_ACCEPT = """
 Thanks for letting me assist the r/{0} \
@@ -201,7 +205,7 @@ MSG_USER_FLAIR_MODMAIL_LINK = ("https://www.reddit.com/message/compose?to=%2Fr%2
 MSG_USER_FLAIR_REMOVAL = ("**Your post has been removed but will be automatically restored if you "
                           "select a flair for it within 24 hours.** "
                           "We apologize for the inconvenience.\n\n")
-MSG_USER_FLAIR_REMOVAL_NO_APPROVE = ("**Your post has been removed but will be restored by a "
+MSG_USER_FLAIR_REMOVAL_NO_APPROVE = ("**Your post has been removed but may be restored by a "
                                      "moderator as soon as possible if you select a flair for it"
                                      ".**  We apologize for the inconvenience.\n\n")
 MSG_USER_FLAIR_APPROVAL = """
@@ -271,7 +275,7 @@ GOODBYE_PHRASES = ['Adieu', 'Adiós', 'Au revoir', 'Best regards', 'Cheers', 'Ci
 #  'userflair_statistics': True,
 #  'flair_enforce_moderators': False,
 #  'custom_name': 'Artemis'}
-CONFIG_DEFAULT = """
+ADV_DEFAULT = """
     # -----------------------------------------------------------------
     # INSTRUCTIONS: https://www.reddit.com/r/AssistantBOT/wiki/advanced
     # MODMAIL: https://mod.reddit.com/mail/create
