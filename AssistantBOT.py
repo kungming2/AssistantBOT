@@ -44,7 +44,7 @@ from _text import *
 
 """INITIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "1.7.14 Hazel"
+VERSION_NUMBER = "1.7.15 Hazel"
 
 # Define the location of the main files Artemis uses.
 # They should all be in the same folder as the Python script itself.
@@ -87,6 +87,9 @@ CURSOR_DATA = CONN_DATA.cursor()
 # Global dictionary that stores formatted data for statistics pages,
 # which is cleared after the daily statistics run.
 UPDATER_DICTIONARY = {}
+
+# Number of regular top-level routine runs that have been made.
+ISOCHRONISMS = 0
 
 
 """DATE/TIME CONVERSION FUNCTIONS"""
@@ -189,7 +192,7 @@ def date_get_historical_series_days(list_of_days):
     :return: Another list of days, the ones to get data for.
     """
     # The max number of past days we want to get historical data for.
-    days_limit = 120
+    days_limit = SETTINGS.hist_days_limit
 
     # If number of days contained is fewer than our limit, just return
     # the whole thing back. Otherwise, truncate the number of days.
@@ -760,8 +763,8 @@ def database_cleanup():
     :return: `None`.
     """
     # How many lines of log entries we wish to preserve in the logs.
-    lines_to_keep = int(SETTINGS.entries_to_keep / 2)
-    updated_to_keep = int(SETTINGS.entries_to_keep / 5)
+    lines_to_keep = int(SETTINGS.entries_to_keep / SETTINGS.lines_to_keep_divider)
+    updated_to_keep = int(SETTINGS.entries_to_keep / SETTINGS.updated_to_keep_divider)
 
     # Access the `processed` database, order the posts by oldest first,
     # and then only keep the above number of entries.
@@ -1358,10 +1361,11 @@ def subreddit_subscribers_retriever(subreddit_name):
         # This is a regular day in the last 180 entries. If we are past
         # 180 days (about half a year) then we get only the starts of
         # the months for a shorter table.
-        if previous_day in subscriber_dictionary and day_index <= 180:
+        day_limit = SETTINGS.num_display_subscriber_days
+        if previous_day in subscriber_dictionary and day_index <= day_limit:
             subscriber_previous = subscriber_dictionary[previous_day]
             net_change = subscriber_count - subscriber_previous
-        elif day_index > 180 and "-01" in date[-3:]:
+        elif day_index > day_limit and "-01" in date[-3:]:
             # Try to get the previous month's entry, which is not
             # immediately previous to this one.
             try:
@@ -1387,7 +1391,7 @@ def subreddit_subscribers_retriever(subreddit_name):
             day_changes.append(net_change)
 
         new_line = line.format(date, subscriber_count, net_change)
-        if day_index <= 180 or day_index > 180 and "-01" in date[-3:]:
+        if day_index <= day_limit or day_index > day_limit and "-01" in date[-3:]:
             formatted_lines.append(new_line)
 
     # Get the average change of subscribers per day.
@@ -1434,7 +1438,7 @@ def subreddit_subscribers_estimator(subreddit_name):
     :return:
     """
     next_milestone = None
-    sample_size = 14
+    sample_size = SETTINGS.subscriber_sample_size
     last_few_entries = []
 
     # Access the database.
@@ -1488,14 +1492,14 @@ def subreddit_subscribers_estimator(subreddit_name):
 
         # If the days are too far from now, (over two years) or if the
         # subreddit is shrinking don't return milestones.
-        if days_until_milestone > 730 or days_until_milestone < 0:
+        if days_until_milestone > SETTINGS.subscriber_milestone_upper or days_until_milestone < 0:
             milestone_format = None
         else:
             # Format the next milestone as a string. If the next
             # milestone is within four months, just include it as days.
             # Otherwise, format the next time string in months instead.
             unix_next_milestone_string = date_convert_to_string(unix_next_milestone)
-            if days_until_milestone <= 120:
+            if days_until_milestone <= SETTINGS.subscriber_milestone_format_days:
                 if days_until_milestone == 0:
                     time_until_string = "(today!)"
                 else:
@@ -1631,7 +1635,7 @@ def subreddit_subscribers_pushshift_historical_recorder(subreddit_name, fetch_to
     :return:
     """
     subscribers_dictionary = {}
-    chunk_size = 7
+    chunk_size = SETTINGS.pushshift_subscriber_chunks
     logger.info('Subscribers PS: Retrieving subscribers for r/{}...'.format(subreddit_name))
 
     # If we just want to get today's stats just create a list with today
@@ -1647,8 +1651,8 @@ def subreddit_subscribers_pushshift_historical_recorder(subreddit_name, fetch_to
         # creation date as the starting point instead.
         subreddit_created = int(reddit.subreddit(subreddit_name).created_utc)
         subreddit_created_date = date_convert_to_string(subreddit_created)
-        if "2018-03-15" > subreddit_created_date:
-            start_date = "2018-03-15"
+        if SETTINGS.pushshift_subscriber_start > subreddit_created_date:
+            start_date = SETTINGS.pushshift_subscriber_start
         else:
             start_date = subreddit_created_date
         logger.debug("Subscribers PS: Retrieval will start from {}.".format(start_date))
@@ -1895,7 +1899,7 @@ def subreddit_pushshift_time_top_retriever(subreddit_name, start_time, end_time,
     """
     list_of_ids = []
     final_dictionary = {}
-    number_to_query = 500
+    number_to_query = SETTINGS.pushshift_top_check_num
 
     # Convert YYYY-MM-DD to Unix time and get the current month as a
     # YYYY-MM string.
@@ -2348,16 +2352,14 @@ def subreddit_statistics_recorder(subreddit_name, start_time, end_time):
     # indicates that the posts being processed don't need to be
     # seen anymore.
     old_post_count = 0
-    old_post_limit = 10
 
-    # Access the subreddit. Consider 1000 to be a MAXIMUM limit, as the
-    # loop will exit early if results are all too old.
+    # Access the subreddit.
     r = reddit.subreddit(subreddit_name)
-    fetch_limit = 1000
 
     # Iterate over our fetched posts. Newest posts will be returned
-    # first, oldest posts last.
-    for result in r.new(limit=fetch_limit):
+    # first, oldest posts last. Consider 1000 to be a MAXIMUM limit, as
+    # the loop will exit early if results are all too old.
+    for result in r.new(limit=1000):
 
         # Check that the time parameters of the retrieved posts are
         # correct. If it's newer than the time we want, skip.
@@ -2369,7 +2371,7 @@ def subreddit_statistics_recorder(subreddit_name, start_time, end_time):
             # posts have been encountered, and if it exceeds our count,
             # we also exit the loop here as subsequent retrieved posts
             # will all be older than the time we want.
-            if old_post_count < old_post_limit:
+            if old_post_count < SETTINGS.old_post_limit:
                 old_post_count += 1
                 continue
             else:
@@ -3038,10 +3040,10 @@ def wikipage_config(subreddit_name):
 
     # This is the max length (in characters) of the custom flair
     # enforcement message.
-    limit_msg = 500
+    limit_msg = SETTINGS.advanced_limit_msg
     # This is the max length (in characters) of the custom bot name and
     # goodbye.
-    limit_name = 20
+    limit_name = SETTINGS.advanced_limit_name
     # A list of Reddit's `tags` that are flair-external.
     permitted_tags = ['nsfw', 'oc', 'spoiler']
 
@@ -3228,7 +3230,7 @@ def wikipage_get_new_subreddits():
     return new_subreddits
 
 
-def wikipage_editor(subreddit_dictionary):
+def wikipage_editor(subreddit_dictionary, new_subreddits):
     """This function takes a dictionary indexed by subreddit with the
     wikipage data for each one. Then it proceeds to update the wikipage
     on the relevant subreddit, going through the list of communities.
@@ -3241,15 +3243,15 @@ def wikipage_editor(subreddit_dictionary):
 
     :param subreddit_dictionary: A dictionary indexed by subreddit with
                                  the wikipage data for each one.
+    :param new_subreddits: A list of subreddits that are new and the
+                           mods should be alerted about their new
+                           statistics page being updated.
     :return: None.
     """
-    date_today = date_convert_to_string(time.time())
-    logger.info("Wikipage Editor: BEGINNING editing ALL statistics wikipages.")
-    logger.debug("Wikipage Editor: All wikipages are for: {}".format(UPDATER_DICTIONARY.keys()))
-
-    # Fetch the list of new subreddits.
-    new_subreddits = wikipage_get_new_subreddits()
-    logger.info("Wikipage Editor: Newly updated subreddits are: {}".format(new_subreddits))
+    current_now = int(time.time())
+    date_today = date_convert_to_string(current_now)
+    logger.info("Wikipage Editor: BEGINNING editing statistics wikipages.")
+    logger.debug("Wikipage Editor: Wikipages are for: {}".format(subreddit_dictionary.keys()))
 
     # Iterate over our communities, starting in alphabetical order
     # (numbers, then A-Z).
@@ -3328,10 +3330,8 @@ def wikipage_editor(subreddit_dictionary):
             logger.info('Wikipage Editor: Sent first wiki edit message '
                         'to r/{} mods.'.format(subreddit_name))
 
-    # Clear the master statistics dictionary when completed.
-    UPDATER_DICTIONARY.clear()
-    logger.info("Wikipage Editor: COMPLETED editing ALL statistics "
-                "wikipages and cleared data dictionary.")
+    logger.info("Wikipage Editor: COMPLETED editing statistics "
+                "wikipages in {} seconds.".format(int(time.time() - current_now)))
 
     return
 
@@ -4125,7 +4125,9 @@ def messaging_send_creator(subreddit_name, subject_type, message):
     # based on the action. The add portion is currently unused.
     subject_dict = {"add": 'Added former subreddit: r/{}',
                     "remove": "Demodded from subreddit: r/{}",
-                    "skip": "Skipped subreddit: r/{}",
+                    "forbidden": "Subscribers forbidden for subreddit: r/{}",
+                    "not_found": "Subscribers not found for subreddit: r/{}",
+                    "omit": "Omitted subreddit: r/{}",
                     "mention": "New item mentioning Artemis on r/{}"
                     }
 
@@ -4232,7 +4234,7 @@ def messaging_parse_flair_response(subreddit_name, response_text):
         # to `returned_template`. Otherwise, `None`.
         best_match = process.extractOne(response_text, list(lowercased_flair_dict.keys()),
                                         scorer=fuzz.WRatio)
-        if best_match[1] >= 95:  # We are very sure this is right.
+        if best_match[1] >= SETTINGS.min_fuzz_ratio:  # We are very sure this is right.
             returned_template = lowercased_flair_dict[best_match[0]]['id']
             logger.info("Parse Response: > Fuzzed match for `{}`: `{}`".format(best_match[0],
                                                                                returned_template))
@@ -4309,7 +4311,7 @@ def messaging_op_approved(subreddit_name, praw_submission, strict_mode=True, mod
 
         # Form our message body, with slight variations depending on
         # whether the addition was via strict mode or not.
-        subject_line = "[Notification] 😊 "
+        subject_line = "[Notification] ✅ "
         key_phrase = "Thanks for selecting"
 
         # The wording will vary based on the mode. In strict mode, we
@@ -4797,8 +4799,6 @@ def main_timer(manual_start=False):
     """
     # Define the times we want actions to take place, in order:
     # The day of the month to gather the top posts from the last month.
-    # The amount of hours to allow for the statistics routine to run.
-    action_window = 6
     cycle_position = 0
 
     # Get the time variables that we need.
@@ -4815,9 +4815,9 @@ def main_timer(manual_start=False):
     userflair_update_days = [SETTINGS.day_action, SETTINGS.day_action + 14]
     userflair_update_time = SETTINGS.action_time + 12
 
-    # Update the operation status widget at the third of each hour
+    # Update the operation status widget every five minutes.
     # This is done before any exits.
-    if 0 <= current_minute <= 3 or 20 <= current_minute <= 23 or 40 <= current_minute <= 43:
+    if not bool(current_minute % 5):
         widget_operational_status_updater()
 
     # Check to see if the statistics functions have already been run.
@@ -4851,7 +4851,7 @@ def main_timer(manual_start=False):
         if current_hour == userflair_update_time and not userflair_done:
             exit_early = False
     if exit_early:
-        if current_hour <= (SETTINGS.action_time + action_window) and not all_stats_done:
+        if current_hour <= (SETTINGS.action_time + SETTINGS.action_window) and not all_stats_done:
             exit_early = False
         if manual_start:
             exit_early = False
@@ -4913,7 +4913,7 @@ def main_timer(manual_start=False):
         if not userflair_done:
             userflair_check_list = list(sorted(userflair_check_list))
             logger.info('Main Timer: Checking the following subreddits '
-                        'for userflairs: {}'.format(userflair_check_list))
+                        'for userflairs: r/{}'.format(', r/'.join(userflair_check_list)))
             userflair_thread = Thread(target=wikipage_userflair_editor,
                                       kwargs=dict(subreddit_list=userflair_check_list))
             userflair_thread.start()
@@ -4932,7 +4932,7 @@ def main_timer(manual_start=False):
     # This should *not* run the first time, because both the cache and
     # `UPDATER_DICTIONARY` should have a length of zero.
     CURSOR_DATA.execute("SELECT * FROM cache_statistics WHERE date = ?", (current_date_string,))
-    results = CURSOR_DATA.fetchall()
+    cached_results = CURSOR_DATA.fetchall()
 
     # If there's cached data from a current statistics run, create a
     # blank dictionary with our local data, and then index the
@@ -4941,13 +4941,30 @@ def main_timer(manual_start=False):
     # This is only used when the bot is recovering the cycle from a
     # crash since there will not be cached data under normal times.
     # `results` would be the cached data.
-    if len(results) != 0:
+    if len(cached_results) != 0:
         existing_updater_dict = {}
-        for result in results:
-            existing_updater_dict[result[1]] = str(result[2])
+        # Check for which subreddits' data have already been updated.
+        # If they have already been updated we don't want to pass them
+        # into the reloaded dictionary from cache.
+        already_command = 'SELECT * FROM subreddit_updated WHERE date = ?'
+        CURSOR_DATA.execute(already_command, (current_date_string,))
+        already_updated = CURSOR_DATA.fetchall()
+        already_updated = [x[0] for x in already_updated]
+
+        # Add cached subreddit statistics data into UPDATER_DICTIONARY
+        # if the subreddit has not already been listed as updated.
+        for result in cached_results:
+            cached_subreddit = result[1]
+            cached_data = str(result[2])  # Data formatted as Markdown.
+            if cached_subreddit not in already_updated:
+                existing_updater_dict[cached_subreddit] = cached_data
         if len(existing_updater_dict) > 0 and len(UPDATER_DICTIONARY) == 0:
             logger.info('Main Timer: Reloading the blank updater dictionary from cache.')
             UPDATER_DICTIONARY.update(existing_updater_dict)
+
+    # Fetch the list of new subreddits.
+    new_subreddits = wikipage_get_new_subreddits()
+    logger.info("Main Timer: Newly updated subreddits are: {}".format(new_subreddits))
 
     # Update the status widget's initial position. It is given a value
     # instead of zero in order to avoid an error dividing by zero.
@@ -4998,6 +5015,18 @@ def main_timer(manual_start=False):
                 CONN_DATA.commit()
                 logger.debug('Main Timer: Cached r/{} statistics '
                              'for {}.'.format(unsaved, current_date_string))
+
+            # Make a copy of the updater dictionary and pass it
+            # to the wikipage editor. Then clear the updater dictionary.
+            # Start the secondary wiki updating thread.
+            dictionary_to_update = UPDATER_DICTIONARY.copy()
+            writing_thread = Thread(target=wikipage_editor,
+                                    kwargs=dict(subreddit_dictionary=dictionary_to_update,
+                                                new_subreddits=new_subreddits))
+            writing_thread.start()
+            logger.info("Main Timer: Passed for editing: "
+                        "r/{}".format(", r/".join(list(dictionary_to_update.keys()))))
+            UPDATER_DICTIONARY.clear()
 
             # Update the status widget.
             widget_status_updater(cycle_position, len(monitored_list), current_date_string,
@@ -5091,17 +5120,21 @@ def main_timer(manual_start=False):
         main_counter_updater(community, 'Updated statistics')
 
     # Here we have done everything in terms of statistics gathering.
-    # Now we need to start editing those wiki pages.  If the dictionary
-    # to update is not empty, update the wiki pages.
+    # The last few wiki pages that are not edited yet, if the dictionary
+    # to update is not empty, update those wiki pages.
     #
     # Initialize a secondary writing thread to update wiki pages
     # separately. We pass arguments according to this:
     # http://blog.acipo.com/python-threading-arguments/
     if len(UPDATER_DICTIONARY) != 0:
-        # Start the secondary wiki updating thread.
+        # Start the secondary wiki updating thread by making a final
+        # copy, then clearing out the master dictionary.
+        dictionary_to_update_final = UPDATER_DICTIONARY.copy()
         writing_thread = Thread(target=wikipage_editor,
-                                kwargs=dict(subreddit_dictionary=UPDATER_DICTIONARY))
+                                kwargs=dict(subreddit_dictionary=dictionary_to_update_final,
+                                            new_subreddits=new_subreddits))
         writing_thread.start()
+        UPDATER_DICTIONARY.clear()
 
         # Clear the cached statistics data for the day as we don't
         # need it anymore.
@@ -5589,9 +5622,9 @@ def main_messaging(regular_cycle=True):
 
     # Adjust the max number of mod invites to process in one cycle.
     if regular_cycle:
-        mod_invite_limit = 3
+        mod_invite_limit = SETTINGS.mod_invite_reg
     else:
-        mod_invite_limit = 1
+        mod_invite_limit = SETTINGS.mod_invite_stats
 
     # Iterate over the inbox, marking messages as read along the way.
     for message in messages:
@@ -5727,7 +5760,7 @@ def main_messaging(regular_cycle=True):
             # pre-existing data.
             if new_subreddit in CONFIG.subreddits_omit:
                 # Message my creator about this.
-                messaging_send_creator(new_subreddit, "skip",
+                messaging_send_creator(new_subreddit, "omit",
                                        "View it at r/{}.".format(new_subreddit))
                 continue
 
@@ -5737,9 +5770,14 @@ def main_messaging(regular_cycle=True):
             # exception: `prawcore.exceptions.Forbidden:` or another.
             try:
                 subscriber_count = msg_subreddit.subscribers
-            except (prawcore.exceptions.Forbidden, prawcore.exceptions.NotFound):
+            except prawcore.exceptions.Forbidden:
                 # This subreddit is quarantined; message my creator.
-                messaging_send_creator(new_subreddit, "skip",
+                messaging_send_creator(new_subreddit, "forbidden",
+                                       "View it at r/{}.".format(new_subreddit))
+                continue
+            except prawcore.exceptions.NotFound:
+                # Error fetching the subscriber count.
+                messaging_send_creator(new_subreddit, "not_found",
                                        "View it at r/{}.".format(new_subreddit))
                 continue
 
@@ -6200,8 +6238,6 @@ def main_get_posts_sections():
 
     :return: A list of strings consisting of subreddits added together.
     """
-    num_chunks = 4
-
     # Access the database, selecting only ones with flair enforcing.
     enforced_subreddits = database_monitored_subreddits_retrieve(True)
 
@@ -6209,7 +6245,7 @@ def main_get_posts_sections():
     # Then divide the list into `num_chunks`chunks.
     # Then join the subreddits with `+` in order to make it
     # parsable by `main_get_submissions` as a "multi-reddit."
-    n = int(len(enforced_subreddits) // num_chunks) + 10
+    n = int(len(enforced_subreddits) // SETTINGS.num_chunks) + 10
     my_range = len(enforced_subreddits) + n - 1
     final_lists = [enforced_subreddits[i * n:(i + 1) * n] for i in range(my_range // n)]
     final_components = ['+'.join(x) for x in final_lists]
@@ -6231,10 +6267,17 @@ def main_get_submissions():
     # list. Reverse the posts so that we start processing the older ones
     # first. The newest posts will be processed last.
     # The communities are fetched in sections in order to keep the
+    # coverage good. If the bot is started for the first time, a full
+    # 1000 posts are fetched initially.
     posts = []
     sections = main_get_posts_sections()
     for section in sections:
-        posts += list(reddit.subreddit(section).new(limit=NUMBER_TO_FETCH))
+        if ISOCHRONISMS == 0:
+            logger.info('Get: Starting fresh for section number {} '
+                        'as there are 0 isochronisms.'.format(sections.index(section) + 1))
+            posts += list(reddit.subreddit(section).new(limit=1000))
+        else:
+            posts += list(reddit.subreddit(section).new(limit=NUMBER_TO_FETCH))
     posts.sort(key=lambda x: x.id.lower())
     processed = []  # List containing processed IDs as tuples.
 
@@ -6739,11 +6782,13 @@ else:
 try:
     while REGULAR_MODE:
         try:
+            print('')
+            logger.info("------- Isochronism {:,} START.".format(ISOCHRONISMS))
             main_messaging()
             main_get_submissions()
             main_flair_checker()
             main_timer()
-            print("\n---\n")
+            logger.info("------- Isochronism {:,} COMPLETE.\n".format(ISOCHRONISMS))
         except Exception as e:
             # Artemis encountered an error/exception, and if the error
             # is not a common connection issue, log it in a separate
@@ -6754,6 +6799,7 @@ try:
             if not any(keyword in error_entry for keyword in SETTINGS.conn_errors):
                 main_error_log_(error_entry)
 
+        ISOCHRONISMS += 1
         time.sleep(SETTINGS.wait)
 except KeyboardInterrupt:
     # Manual termination of the script with Ctrl-C.
