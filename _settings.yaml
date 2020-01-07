@@ -1,5 +1,8 @@
-# Number of seconds Artemis waits in between runs.
+# Number of seconds Artemis waits in between isochronisms.
 wait: 30
+# Number of chunks to split flair enforced subreddits into in order to
+# retrieve their submissions.
+num_chunks: 4
 # We don't want to log common connection errors.
 conn_errors:
     - 500 HTTP
@@ -11,10 +14,31 @@ conn_errors:
 # And the day of the month for monthly traffic functions to run.
 day_action: 1
 day_traffic: 4
-# The hour daily functions will run (midnight UTC in this case).
+# The hour daily functions will run at (midnight UTC in this case).
 action_time: 0
+# The amount of hours to allow for the statistics routine to run.
+action_window: 9
+# Subscriber estimator sample size, how many past days to calculate
+# the future growth of a subreddit's subscribers.
+subscriber_sample_size: 14
+# How many days in the future do we want to stop estimating a subreddit
+# subscriber milestone?
+subscriber_milestone_upper: 730
+# The subscriber milestone will be formatted as "days" if it is fewer
+# than this amount. Otherwise, it'll be formatted as "months."
+subscriber_milestone_format_days: 120
+# The number of chunks to break subscriber searches into in order to
+# expedite the process.
+pushshift_subscriber_chunks: 7
+# Pushshift started tracking subscriber data on this day:
+pushshift_subscriber_start: "2018-03-15"
+# The number of posts to check for historical top posts data with
+# Pushshift.
+pushshift_top_check_num: 750
 # The number of Pushshift entries to display in statistics pages.
 num_display: 5
+# The number of past individual days to display subscriber data.
+num_display_subscriber_days: 180
 # Minimum and maximum ages (in secs) for Artemis to act on posts.
 # The first variable is often used as a baseline for other times.
 min_monitor_sec: 300
@@ -25,8 +49,28 @@ min_s_stats: 25
 min_s_userflair: 50000
 # The number of data entries to store, and how many posts to pull.
 entries_to_keep: 8000
+# Dividers for how many entries to keep of other databases.
+# Derived from `entries_to_keep` above.
+lines_to_keep_divider: 2
+updated_to_keep_divider: 5
+# Number of posts to get when pulling submissions.
 max_get_posts: 500
 min_get_posts: 175
+# Number of old posts as a limit with pulling posts for recording at
+# the end of a day.
+old_post_limit: 10
+# Historical day limit, the max number of past days we want to get
+# historical data for.
+hist_days_limit: 120
+# Moderator invite limits to space out multiple invites at a time.
+mod_invite_reg: 3
+mod_invite_stats: 1
+# Message and string limits for advanced mode settings. The first is for
+# any custom message, the second is for the bot name and sign-off.
+advanced_limit_msg: 500
+advanced_limit_name: 20
+# Minimum fuzz ratio for a message to be flaired.
+min_fuzz_ratio: 95
 # These are major subscriber milestones that a subreddit reaches.
 milestones:
     - 10
