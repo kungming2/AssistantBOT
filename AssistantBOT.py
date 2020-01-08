@@ -5890,7 +5890,8 @@ def main_messaging(regular_cycle=True):
             if database_monitored_subreddits_enforce_status(new_subreddit):
                 example_text = "*Should your subreddit choose to enforce post flairs*:\n\n"
                 example_text += messaging_example_collater(msg_subreddit)
-                example_subject = "[Artemis] Example Flair Enforcement Message for r/{}".format(new_subreddit)
+                example_subject = ("[Artemis] Example Flair Enforcement Message "
+                                   "for r/{}".format(new_subreddit))
                 msg_subreddit.message(example_subject, example_text)
                 logger.info("Messaging: Sent example message.".format(mode))
 
@@ -6632,9 +6633,10 @@ def external_artemis_monthly_statistics(month_string):
             else:
                 formatted_subreddits.append(subreddit)
     formatted_subreddits.sort(key=lambda y: y.lower())
-    added_section = "\n## Artemis Overall Statistics for {}".format(month_string)
+    added_section = "\n# Artemis Overall Statistics — {}".format(month_string)
     added_section += ("\n\n### Added Subreddits\n\n"
                       "* r/{}".format('\n* r/'.join(formatted_subreddits)))
+    added_section += "\n* **Total**: {} public subreddits".format(len(formatted_subreddits))
 
     # Get the actions from during this time period.
     CURSOR_DATA.execute('SELECT * FROM subreddit_actions WHERE subreddit == ?', ('all',))
@@ -6696,8 +6698,8 @@ def external_artemis_monthly_statistics(month_string):
         line = "| {} | {:,} |".format(day, posts[day])
         list_of_posts.append(line)
     list_of_posts.append('| **Total** | {:,} |'.format(posts_total))
-    posts_data = ("### Daily Processed Posts\n\nDay | Number of Posts"
-                  "\n----|---\n{}".format('\n'.join(list_of_posts)))
+    posts_data = ("### Daily Processed Posts\n\n| Day | Number of Posts |"
+                  "\n|-----|-----------------|\n{}".format('\n'.join(list_of_posts)))
 
     # Finalize the text to return.
     body = "{}\n\n{}\n\n### Daily Actions\n\n".format(added_section, posts_data)
