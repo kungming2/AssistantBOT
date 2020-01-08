@@ -44,13 +44,14 @@ from _text import *
 
 """INITIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "1.7.15 Hazel"
+VERSION_NUMBER = "1.7.16 Hazel"
 
 # Define the location of the main files Artemis uses.
 # They should all be in the same folder as the Python script itself.
 SOURCE_FOLDER = os.path.dirname(os.path.realpath(__file__))
 FILE_ADDRESS = {'data': "/_data.db", 'error': "/_error.md",
-                "logs": "/_logs.md", "info": "/_info.yaml", "settings": "/_settings.yaml"}
+                "logs": "/_logs.md", "info": "/_info.yaml",
+                "settings": "/_settings.yaml"}
 for file_type, file_address in FILE_ADDRESS.items():
     FILE_ADDRESS[file_type] = SOURCE_FOLDER + file_address
 FILE_ADDRESS = SimpleNamespace(**FILE_ADDRESS)
@@ -3207,14 +3208,16 @@ def wikipage_get_new_subreddits():
     send an initial message to the subreddit moderators about their
     newly updated statistics page.
 
-    :return: A list of subreddits that were added since the last
-             midnight UTC. Empty list otherwise.
+    :return: A list of subreddits that were added between yesterday's
+             midnight UTC and the last one. Empty list otherwise.
     """
     new_subreddits = []
 
     # Get the last midnight UTC from a day ago.
-    today_string = date_convert_to_string(time.time() - 86400)
-    last_midnight_utc = date_convert_to_unix(today_string)
+    yesterday_string = date_convert_to_string(time.time() - 86400)
+    today_string = date_convert_to_string(time.time())
+    yesterday_midnight_utc = date_convert_to_unix(yesterday_string)
+    today_midnight_utc = date_convert_to_unix(today_string)
 
     # Iterate over the last few subreddits on the user page that are
     # recorded as having added the bot. Get only moderator invites
@@ -3222,9 +3225,9 @@ def wikipage_get_new_subreddits():
     for result in reddit_helper.subreddit('u_{}'.format(AUTH.username)).new(limit=20):
 
         if "Accepted mod invite" in result.title:
-            # If the time is older than the last midnight, tell the sub
-            # and get the subreddit name from the subject.
-            if result.created_utc > last_midnight_utc:
+            # If the time is older than the last midnight, get the
+            # subreddit name from the subject and add it to the list.
+            if today_midnight_utc > result.created_utc >= yesterday_midnight_utc:
                 new_subreddits.append(re.findall(" r/([a-zA-Z0-9-_]*)", result.title)[0].lower())
 
     return new_subreddits
@@ -3875,7 +3878,9 @@ def widget_operational_status_updater():
     """
     current_time = datetime.datetime.fromtimestamp(time.time(),
                                                    tz=datetime.timezone.utc).isoformat()[:19]
-    current_time += 'Z'  # UTC time marker.
+    wa_time = "{} {} UTC".format(current_time.split('T')[0], current_time.split('T')[1])
+    wa_link = "https://www.wolframalpha.com/input/?i={}+to+current+geoip+location".format(wa_time)
+    current_time += '[Z]({})'.format(wa_link)  # UTC time marker.
 
     # Get the operational status widget.
     operational_id = 'widget_142uuvol5mzqi'
@@ -4815,9 +4820,9 @@ def main_timer(manual_start=False):
     userflair_update_days = [SETTINGS.day_action, SETTINGS.day_action + 14]
     userflair_update_time = SETTINGS.action_time + 12
 
-    # Update the operation status widget every five minutes.
-    # This is done before any exits.
-    if not bool(current_minute % 5):
+    # Update the operation status widget every ten minutes.
+    # This is done before any exits, with a bit of a buffer.
+    if current_minute % 10 in [0, 1]:
         widget_operational_status_updater()
 
     # Check to see if the statistics functions have already been run.
@@ -5885,7 +5890,7 @@ def main_messaging(regular_cycle=True):
             if database_monitored_subreddits_enforce_status(new_subreddit):
                 example_text = "*Should your subreddit choose to enforce post flairs*:\n\n"
                 example_text += messaging_example_collater(msg_subreddit)
-                example_subject = "[Artemis] Example Flair Enforcement Message"
+                example_subject = "[Artemis] Example Flair Enforcement Message for r/{}".format(new_subreddit)
                 msg_subreddit.message(example_subject, example_text)
                 logger.info("Messaging: Sent example message.".format(mode))
 
