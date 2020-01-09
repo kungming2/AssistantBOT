@@ -44,7 +44,7 @@ from _text import *
 
 """INITIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "1.7.16 Hazel"
+VERSION_NUMBER = "1.7.17 Hazel"
 
 # Define the location of the main files Artemis uses.
 # They should all be in the same folder as the Python script itself.
@@ -4822,7 +4822,7 @@ def main_timer(manual_start=False):
 
     # Update the operation status widget every ten minutes.
     # This is done before any exits, with a bit of a buffer.
-    if current_minute % 10 in [0, 1]:
+    if current_minute % 10 <= 2:
         widget_operational_status_updater()
 
     # Check to see if the statistics functions have already been run.
@@ -6492,8 +6492,8 @@ def main_get_submissions():
     if processed:
         CURSOR_DATA.executemany('INSERT INTO posts_processed VALUES (?)', processed)
         CONN_DATA.commit()
-        logger.info('Get: Insertion of {} post IDs into processed '
-                    'database COMPLETE.'.format(len(processed)))
+        logger.info('Get: Insertion of {} new post IDs out of {} into processed '
+                    'database COMPLETE.'.format(len(processed), len(posts)))
 
     return
 
