@@ -45,13 +45,14 @@ from _text import *
 
 """INITIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "1.7.18 Hazel"
+VERSION_NUMBER = "1.7.19 Hazel"
 
 # Define the location of the main files Artemis uses.
 # They should all be in the same folder as the Python script itself.
 SOURCE_FOLDER = os.path.dirname(os.path.realpath(__file__))
 FILE_ADDRESS = {'data': "/_data.db", 'error': "/_error.md",
                 "logs": "/_logs.md", "info": "/_info.yaml",
+                'operations': "/_operations.yaml",
                 "settings": "/_settings.yaml"}
 for file_type, file_address in FILE_ADDRESS.items():
     FILE_ADDRESS[file_type] = SOURCE_FOLDER + file_address
@@ -378,6 +379,21 @@ def database_monitored_subreddits_enforce_mode(subreddit_name):
     return flair_enforce_status
 
 
+def database_monitored_paused_retrieve():
+    """This function retrieves a list of the subreddits that have below
+    the minimum count of subscribers that's needed for statistics.
+    """
+    paused_subs = []
+    monitored = database_monitored_subreddits_retrieve()
+
+    for sub in monitored:
+        current = database_last_subscriber_count(sub)
+        if current < SETTINGS.min_s_stats:
+            paused_subs.append(sub)
+
+    return paused_subs
+
+
 def database_monitored_integrity_checker():
     """This function double-checks the database to make sure the local
     list of subreddits that are being monitored are the same as the
@@ -419,6 +435,8 @@ def database_delete_filtered_post(post_id):
     CURSOR_DATA.execute('DELETE FROM posts_filtered WHERE post_id = ?', (post_id,))
     CONN_DATA.commit()
     logger.debug('Delete Filtered Post: Deleted post `{}` from filtered database.'.format(post_id))
+    main_counter_updater(subreddit_name=None, action_type="Cleared post",
+                         post_id=post_id, id_only=True)
 
     return
 
@@ -4326,7 +4344,7 @@ def messaging_op_approved(subreddit_name, praw_submission, strict_mode=True, mod
         if strict_mode:
             subject_line += "Your flaired post is approved on r/{}!".format(post_subreddit)
             approval_message = MSG_USER_FLAIR_APPROVAL_STRICT.format(post_subreddit)
-            main_counter_updater(post_subreddit, 'Restored post')
+            main_counter_updater(post_subreddit, 'Restored post', post_id=post_id)
 
             if mod_flaired:
                 key_phrase = "It appears a mod has selected"
@@ -4337,7 +4355,7 @@ def messaging_op_approved(subreddit_name, praw_submission, strict_mode=True, mod
             # assignment.
             subject_line += "Your post has been assigned a flair on r/{}!".format(post_subreddit)
             approval_message = ""
-            main_counter_updater(subreddit_name, 'Flaired post')
+            main_counter_updater(subreddit_name, 'Flaired post', post_id=post_id)
 
         # See if there's a custom name or custom goodbye in the extended
         # data to use.
@@ -4497,7 +4515,8 @@ def main_config_retriever():
     return
 
 
-def main_counter_updater(subreddit_name, action_type, action_count=1):
+def main_counter_updater(subreddit_name, action_type, action_count=1,
+                         post_id=None, id_only=False):
     """This function writes a certain number to an action log in the
     database to indicate how many times an action has been performed for
     a subreddit. For example, how many times posts have been removed,
@@ -4517,10 +4536,40 @@ def main_counter_updater(subreddit_name, action_type, action_count=1):
                                                  statistics page was
                                                  updated (once a day).
     :param action_count: Defaults to 1, but can be changed if desired.
+    :param post_id: The ID of a post (optional) for record-keeping in
+                    the operations log.
+    :param id_only: A Boolean telling whether the action should be
+                    recorded only to the post ID operations log.
+                    If `True`, then this will not be recorded in the SQL
+                    database.
     :return: `None`.
     """
+    # If the data is for a single post, we can save it to the
+    # per-post ID operations log.
+    if action_count == 1 and post_id:
+        with open(FILE_ADDRESS.operations, 'r', encoding='utf-8') as f:
+            operations_data = yaml.safe_load(f.read())
+
+        # In case the main file is blank, recreate it.
+        if not operations_data:
+            operations_data = {}
+
+        # Create the data package to update the main dictionary with.
+        post_package = {int(time.time()): action_type}
+        if post_id in operations_data:
+            operations_data[post_id].update(post_package)
+        else:
+            operations_data[post_id] = post_package
+        with open(FILE_ADDRESS.operations, 'w', encoding='utf-8') as f:
+            yaml.dump(operations_data, f, sort_keys=True, indent=4)
+
+    # Exit early if all we want is to record to that actions log.
+    if id_only:
+        return
+
     # Make the name lowercase.
-    subreddit_name = subreddit_name.lower()
+    if subreddit_name:
+        subreddit_name = subreddit_name.lower()
 
     # Access the database to see if we have recorded actions for this
     # subreddit already.
@@ -4551,7 +4600,6 @@ def main_counter_updater(subreddit_name, action_type, action_count=1):
     # This is a dictionary that indexes all actions done, per day.
     CURSOR_DATA.execute('SELECT * FROM subreddit_actions WHERE subreddit = ?', ('all',))
     result = CURSOR_DATA.fetchone()
-
     if result is not None:
         master_actions = literal_eval(result[1])
         current_day = date_convert_to_string(time.time())
@@ -4967,8 +5015,9 @@ def main_timer(manual_start=False):
             logger.info('Main Timer: Reloading the blank updater dictionary from cache.')
             UPDATER_DICTIONARY.update(existing_updater_dict)
 
-    # Fetch the list of new subreddits.
+    # Fetch the list of new and paused statistics subreddits.
     new_subreddits = wikipage_get_new_subreddits()
+    paused_subreddits = database_monitored_paused_retrieve()
     logger.info("Main Timer: Newly updated subreddits are: {}".format(new_subreddits))
 
     # Update the status widget's initial position. It is given a value
@@ -5050,7 +5099,10 @@ def main_timer(manual_start=False):
 
             # Finally, reset the start time.
             cycle_initialize_time = int(time.time())
-            logger.info('Main Timer: Cycle RESET complete. Submissions fetched.\n')
+            cycle_mem_num = psutil.Process(os.getpid()).memory_info().rss
+            cycle_mem_usage = "Memory usage: {:.3f} MB.".format(cycle_mem_num / (1024 * 1024))
+            logger.info('Main Timer: Cycle RESET complete. '
+                        'Submissions fetched. {}\n'.format(cycle_mem_usage))
 
         # Check to see if we have acted upon this subreddit for today
         # and already have its statistics.
@@ -5085,7 +5137,6 @@ def main_timer(manual_start=False):
         # If it is below minimum, skip but record the subscriber
         # count so that we could resume statistics gathering
         # automatically once it passes that minimum.
-        subreddit_current_sub_count = database_last_subscriber_count(community)
         ext_data = database_extended_retrieve(community)
         if ext_data is not None:
             freeze = database_extended_retrieve(community).get('freeze', False)
@@ -5097,7 +5148,7 @@ def main_timer(manual_start=False):
         # If there are too few subscribers to record statistics,
         # or the statistics status is frozen, record the number of
         # subscribers and continue without recording statistics.
-        if subreddit_current_sub_count < SETTINGS.min_s_stats or freeze:
+        if community in paused_subreddits or freeze:
             subreddit_subscribers_recorder(community)
             logger.info('Main Timer: COMPLETED: r/{} below minimum or frozen. '
                         'Recorded subscribers.'.format(community))
@@ -5481,6 +5532,8 @@ def main_post_approval(submission, template_id=None):
             # The moderator who removed this is not me. Don't restore.
             logger.debug('Post Approval: Post `{}` removed by mod u/{}.'.format(post_id,
                                                                                 moderator_removed))
+            main_counter_updater(post_subreddit, 'Other moderator removed post',
+                                 post_id=post_id, id_only=True)
             can_process = False
 
     # Check the number of reports existing on it. If there are some,
@@ -5490,6 +5543,8 @@ def main_post_approval(submission, template_id=None):
     if num_reports is not None:
         if num_reports <= -4:
             logger.info('Post Approval: Post `{}` has {} reports.'.format(post_id, num_reports))
+            main_counter_updater(post_subreddit, 'Excessive reports on post',
+                                 post_id=post_id, id_only=True)
             can_process = False
 
     # Check here to see if the author has deleted the post, which will
@@ -5501,6 +5556,8 @@ def main_post_approval(submission, template_id=None):
     except AttributeError:
         # Author is deleted.
         logger.debug('Post Approval: Post `{}` author deleted.'.format(post_id))
+        main_counter_updater(post_subreddit, 'Author deleted',
+                             post_id=post_id, id_only=True)
         can_process = False
 
     # Run a check for the boolean `can_process`. If it's `False`,
@@ -5709,6 +5766,21 @@ def main_messaging(regular_cycle=True):
                 # Secondly, initiate the update cycle.
                 main_timer(manual_start=True)
                 message.reply('Messaging: Finished retrieving statistics.')
+            elif 'operations' in msg_subject:
+                # This fetches the operations that have been performed
+                # by the bot on specific IDs.
+                list_of_ids = msg_body.lower().split(',')
+                list_of_ids = [x.strip() for x in list_of_ids]
+                reply_data = {}
+
+                with open(FILE_ADDRESS.operations, 'r', encoding='utf-8') as f:
+                    operations_data = yaml.safe_load(f.read())
+                for post_id in list_of_ids:
+                    if post_id in operations_data:
+                        reply_data[post_id] = operations_data[post_id]
+                    else:
+                        reply_data[post_id] = None
+                message.reply('Messaging: Operations data is:\n\n    {}'.format(reply_data))
 
         # FLAIR ENFORCEMENT AND SELECTION
         # If the reply is to a flair enforcement message, we process it
@@ -6358,6 +6430,8 @@ def main_get_submissions():
         log_line = ('Get: New Post "{}" on r/{} (https://redd.it/{}), flaired with "{}". '
                     'Added to processed database.')
         logger.info(log_line.format(post_title, post_subreddit, post_id, post_flair_text))
+        main_counter_updater(subreddit_name=None, action_type="Fetched post",
+                             post_id=post_id, id_only=True)
 
         # Check to see if the author is me or AutoModerator.
         # If it is, don't process.
@@ -6398,12 +6472,16 @@ def main_get_submissions():
             if flair_is_user_mod(post_author, post_subreddit) and not enforce_moderators:
                 logger.info('Get: > Post author u/{} is mod of r/{}. Skip.'.format(post_author,
                                                                                    post_subreddit))
+                main_counter_updater(subreddit_name=None, action_type="Skipped mod post",
+                                     post_id=post_id, id_only=True)
                 continue
 
             # Check to see if author is on a whitelist in extended data.
             if 'flair_enforce_whitelist' in sub_ext_data:
                 if post_author.lower() in sub_ext_data['flair_enforce_whitelist']:
                     logger.info('Get: > Post author u/{} is on the extended whitelist. Skipped.')
+                    main_counter_updater(subreddit_name=None, action_type="Skipped whitelist post",
+                                         post_id=post_id, id_only=True)
                     continue
 
             # Retrieve the available flairs as a Markdown list.
@@ -6438,7 +6516,7 @@ def main_get_submissions():
                 post.mod.remove()
                 removal = "Get: >> Also removed post `{}` and added to the filtered database."
                 logger.info(removal.format(post_id))
-                main_counter_updater(post_subreddit, 'Removed post')
+                main_counter_updater(post_subreddit, 'Removed post', post_id=post_id)
 
                 # Change the removal message depending on whether the
                 # extended data allows for removal.
@@ -6455,7 +6533,7 @@ def main_get_submissions():
                         advanced_send_alert(post, sub_ext_data['flair_enforce_alert_list'])
             else:
                 # Not in strict enforcement mode. Send a normal message.
-                main_counter_updater(post_subreddit, 'Sent flair reminder')
+                main_counter_updater(post_subreddit, 'Sent flair reminder', post_id=post_id)
                 removal_option = ""
 
             # Check to see if there's a custom message to send to the
@@ -6801,7 +6879,7 @@ try:
 
             # Record memory usage at the end of an isochronism.
             mem_num = psutil.Process(os.getpid()).memory_info().rss
-            mem_usage = "Memory usage: {:.3f} megabytes.".format(mem_num / (1024 * 1024))
+            mem_usage = "Memory usage: {:.3f} MB.".format(mem_num / (1024 * 1024))
             logger.info("------- Isochronism {:,} COMPLETE. {}\n".format(ISOCHRONISMS, mem_usage))
         except Exception as e:
             # Artemis encountered an error/exception, and if the error
