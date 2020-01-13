@@ -33,6 +33,7 @@ from urllib.request import urlopen
 
 import praw
 import prawcore
+import psutil
 import requests
 import yaml
 from fuzzywuzzy import fuzz
@@ -44,7 +45,7 @@ from _text import *
 
 """INITIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "1.7.17 Hazel"
+VERSION_NUMBER = "1.7.18 Hazel"
 
 # Define the location of the main files Artemis uses.
 # They should all be in the same folder as the Python script itself.
@@ -356,13 +357,12 @@ def database_monitored_subreddits_enforce_mode(subreddit_name):
     :param subreddit_name: Name of a subreddit.
     :return: The Artemis mode of the subreddit as a string.
     """
-    subreddit_name = subreddit_name.lower()
     enforce_mode = 'Default'
     enhancement = ""
 
     # Get the type of flair enforcing default/strict status.
     # Does it have the `posts` or `flair` mod permission?
-    current_permissions = main_obtain_mod_permissions(subreddit_name)
+    current_permissions = main_obtain_mod_permissions(subreddit_name.lower())
 
     # If I am a moderator, check for the `+` enhancement and then for
     # strict mode. Return `N/A` if not a moderator.
@@ -5872,16 +5872,19 @@ def main_messaging(regular_cycle=True):
                 # for people to select anyway.
                 database_monitored_subreddits_enforce_change(new_subreddit, False)
                 logger.info("Messaging: Subreddit has no flairs. Disabled flair enforcement.")
+                flair_enforce_mode = 'Off'
             else:
                 # We have access to X number of templates on this
                 # subreddit. Format the template section.
                 template_section = ("\nThis subreddit has **{} user-accessible post flairs** "
                                     "to enforce:\n\n".format(template_number))
                 template_section += subreddit_templates_collater(new_subreddit)
+                flair_enforce_mode = database_monitored_subreddits_enforce_mode(new_subreddit)
 
             # Format the reply to the subreddit, and confirm the invite.
             body = MSG_MOD_INIT_ACCEPT.format(new_subreddit, mode_component, template_section,
-                                              messaging_component, minimum_section)
+                                              messaging_component, minimum_section,
+                                              flair_enforce_mode)
             message.reply(body + BOT_DISCLAIMER.format(new_subreddit))
             logger.info("Messaging: Sent confirmation reply. Set to `{}` mode.".format(mode))
 
@@ -5929,8 +5932,8 @@ def main_messaging(regular_cycle=True):
                         '\n\n* `{}` mode\n\n> *{}*\n\n> {}')
                 info = info.format(new_subreddit, msg_subreddit.subscribers,
                                    date_convert_to_string(msg_subreddit.created_utc),
-                                   database_monitored_subreddits_enforce_mode(new_subreddit),
-                                   msg_subreddit.title,  subreddit_about.replace("\n", "\n> "))
+                                   flair_enforce_mode, msg_subreddit.title,
+                                   subreddit_about.replace("\n", "\n> "))
 
                 # If the subreddit is public, add a comment and sticky.
                 # Don't leave a comment if the subreddit is private and
@@ -6795,7 +6798,11 @@ try:
             main_get_submissions()
             main_flair_checker()
             main_timer()
-            logger.info("------- Isochronism {:,} COMPLETE.\n".format(ISOCHRONISMS))
+
+            # Record memory usage at the end of an isochronism.
+            mem_num = psutil.Process(os.getpid()).memory_info().rss
+            mem_usage = "Memory usage: {:.3f} megabytes.".format(mem_num / (1024 * 1024))
+            logger.info("------- Isochronism {:,} COMPLETE. {}\n".format(ISOCHRONISMS, mem_usage))
         except Exception as e:
             # Artemis encountered an error/exception, and if the error
             # is not a common connection issue, log it in a separate
