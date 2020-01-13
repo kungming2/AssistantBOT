@@ -11,7 +11,9 @@ BOT_DISCLAIMER = ("\n\n---\n^Artemis: ^a ^moderation ^assistant ^for ^r/{0} ^| "
 # These are responses to moderator actions.
 MSG_MOD_INIT_ACCEPT = """
 Thanks for letting me assist the r/{0} \
-[moderator team](https://www.reddit.com/r/{0}/about/moderators)!
+[moderator team](https://www.reddit.com/r/{0}/about/moderators)! Flair \
+enforcing is currently set to `{5}` [mode](https://www.reddit.com/r/\
+AssistantBOT/wiki/faq#wiki_flair_enforcing).
 
 {4}
 
@@ -57,10 +59,10 @@ MSG_MOD_INIT_PROFILE = """
 profiles *do not* have [post flairs](https://www.reddithelp.com/en/categories/using-reddit/\
 profiles/profile-moderation-tools) and Artemis is therefore unusable on them.
 
-If this is in error, please comment on r/AssistantBOT with this subreddit's name. Thanks!
+If this is in error, please make a comment on r/AssistantBOT with this subreddit's name. Thanks!
 """
 MSG_MOD_INIT_MINIMUM = """
-⏸️ This subreddit currently has fewer than {0} subscribers, so I've turned off statistics \
+⏸️ This subreddit currently has fewer than {0} subscribers, so I've paused statistics \
 gathering for now. I will automatically resume statistics gathering once it reaches that \
 milestone (it is currently {1} subscribers short).
 """
@@ -70,12 +72,12 @@ MSG_MOD_INIT_NON_MINIMUM = """
 (I recommend bookmarking this page for easy access.)
 """
 MSG_MOD_INIT_STRICT = '''
-🔨 Since I have the `posts` moderator permission, "strict mode" for flair enforcing has been \
-activated on this subreddit. I will *remove* posts without any flair and automatically \
+🔨 Since I have the `posts` moderator permission, I will *remove* posts \
+without any flair and automatically \
 *restore and approve* them once a flair is selected. Unflaired posts older than 24 hours are \
 considered abandoned by their submitter and will not be restored.
 
-To disable "strict mode" but continue flair enforcement via reminder messages, simply uncheck \
+To disable post removals but continue flair enforcement via reminder messages, simply uncheck \
 my `posts` moderator permission [here](https://www.reddit.com/r/{}/about/moderators).
 '''
 MSG_MOD_INIT_MESSAGING = '''
