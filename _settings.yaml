@@ -48,11 +48,12 @@ max_monitor_sec: 86400
 min_s_stats: 25
 min_s_userflair: 50000
 # The number of data entries to store, and how many posts to pull.
-entries_to_keep: 8000
+entries_to_keep: 12000
 # Dividers for how many entries to keep of other databases.
 # Derived from `entries_to_keep` above.
 lines_to_keep_divider: 2
 updated_to_keep_divider: 5
+operations_to_keep_multiplier: 5
 # Number of posts to get when pulling submissions.
 max_get_posts: 500
 min_get_posts: 175
@@ -70,7 +71,7 @@ mod_invite_stats: 1
 advanced_limit_msg: 500
 advanced_limit_name: 20
 # Minimum fuzz ratio for a message to be flaired.
-min_fuzz_ratio: 95
+min_fuzz_ratio: 90
 # These are major subscriber milestones that a subreddit reaches.
 milestones:
     - 10
@@ -135,3 +136,4 @@ milestones:
     - 20000000
     - 25000000
     - 30000000
+    
