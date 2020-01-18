@@ -40,11 +40,13 @@ classified as modmail "discussions" and be inaccessible to me.
 | `Disable`   | Completely disable flair enforcing on r/{0}.                                      |
 | `Enable`    | Re-enable flair enforcing on r/{0}.                                               |
 | `Example`   | See an example of r/{0}'s flair enforcement message to users.                     |
-| `Update`    | Create an advanced configuration page for r/{0}. *[See here for details]\
+| `Update`    | Create or update an advanced configuration page for r/{0}. *[See here for details]\
 (https://www.reddit.com/r/AssistantBOT/wiki/advanced)*. |
 | `Revert`    | Revert to the default configuration and clear all advanced settings.              |
 | `Takeout`   | Export r/{0}'s Artemis data as JSON. *[See here for details]\
 (https://www.reddit.com/r/AssistantBOT/wiki/faq#wiki_takeout)* |
+| `Query`     | Query Artemis's actions database for individual posts. *[See here for details]\
+(https://www.reddit.com/r/AssistantBOT/wiki/faq#wiki_query)* |
 
 ---
 
@@ -160,7 +162,10 @@ it before deletion.
 #### [Artemis Takeout Data for r/{}]({})
 '''
 MSG_MOD_TAKEOUT_NONE = '''
-⁉️ There doesn't appear to be any data from r/{} in my database to takeout.
+🍽️ Unfortunately, there doesn't appear to be any data from r/{} in my database to takeout.
+'''
+MSG_MOD_QUERY_NONE = '''
+🤔 Unfortunately, there doesn't appear to be any valid data in my database from your query.
 '''
 MSG_MOD_LEAVE = '''
 👋 Artemis will no longer enforce flairs or gather statistics for r/{}. Have a good day!
