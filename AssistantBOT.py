@@ -7025,7 +7025,8 @@ def external_artemis_monthly_statistics(month_string):
     messages_lines = []
     messages_header = ('### Daily Flairing Messages\n\n'
                        '| Date | Total messages | Directly flaired | Fuzzed | Matched | Passed |\n'
-                       '|------|----------------|------------------|--------|---------|--------|\n')
+                       '|------|----------------|------------------|--------|---------|--------|\n'
+                       )
     with open(FILE_ADDRESS.messages, 'r', encoding='utf-8') as f:
         messages_data = f.read()
     messages_list = messages_data.split('\n')[2:]  # Skip table headers.
@@ -7042,7 +7043,8 @@ def external_artemis_monthly_statistics(month_string):
                 messages_dict[message_date][message_action] = 1
         else:
             messages_dict[message_date] = {message_action: 1}
-    message_line = "| {} | {} | {} ({:.2%}) | {} ({:.2%}) | {} ({:.2%}) | {} ({:.2%}) |"
+    message_line = ("| {} | {} | **{}** ({:.0%}) | **{}** ({:.0%}) "
+                    "| **{}** ({:.0%}) | **{}** ({:.0%}) |")
     for day in list_of_days:
         successful_count = actions_flaired[day]
         if day in messages_dict:
