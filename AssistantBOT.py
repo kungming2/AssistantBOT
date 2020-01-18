@@ -45,18 +45,19 @@ from _text import *
 
 """INITIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "1.7.19 Hazel"
+VERSION_NUMBER = "1.8.3 Icaco"
 
 # Define the location of the main files Artemis uses.
 # They should all be in the same folder as the Python script itself.
+# These addresses are then converted into a object for usage.
 SOURCE_FOLDER = os.path.dirname(os.path.realpath(__file__))
-FILE_ADDRESS = {'data': "/_data.db", 'error': "/_error.md",
-                "logs": "/_logs.md", "info": "/_info.yaml",
-                'operations': "/_operations.yaml",
-                "settings": "/_settings.yaml"}
-for file_type, file_address in FILE_ADDRESS.items():
-    FILE_ADDRESS[file_type] = SOURCE_FOLDER + file_address
-FILE_ADDRESS = SimpleNamespace(**FILE_ADDRESS)
+FILE_PATHS = {'data': "/_data.db", 'error': "/_error.md",
+              "logs": "/_logs.md", "info": "/_info.yaml",
+              'messages': "/_messages.md",
+              "settings": "/_settings.yaml"}
+for file_type, file_address in FILE_PATHS.items():
+    FILE_PATHS[file_type] = SOURCE_FOLDER + file_address
+FILE_ADDRESS = SimpleNamespace(**FILE_PATHS)
 
 """LOAD CREDENTIALS & SETTINGS"""
 
@@ -87,15 +88,23 @@ SETTINGS = SimpleNamespace(**load_information()[1])
 CONN_DATA = sqlite3.connect(FILE_ADDRESS.data)
 CURSOR_DATA = CONN_DATA.cursor()
 
-# Global dictionary that stores formatted data for statistics pages,
-# which is cleared after the daily statistics run.
-UPDATER_DICTIONARY = {}
-
 # Number of regular top-level routine runs that have been made.
 ISOCHRONISMS = 0
 
-
 """DATE/TIME CONVERSION FUNCTIONS"""
+
+
+def date_time_convert_to_string(unix_integer):
+    """Converts a UNIX integer into a time formatted according to
+    ISO 8601 for UTC time.
+
+    :param unix_integer: Any UNIX time number.
+    """
+    i = int(unix_integer)
+    utc_time = datetime.datetime.fromtimestamp(i, tz=datetime.timezone.utc).isoformat()[:19]
+    utc_time = "{}Z".format(utc_time)
+
+    return utc_time
 
 
 def date_convert_to_string(unix_integer):
@@ -777,13 +786,14 @@ def database_cleanup():
     and deletes the oldest ones.
 
     This function also truncates the events log to keep it at
-    a manageable length.
+    a manageable length, as well as the `posts_operations` table.
 
     :return: `None`.
     """
     # How many lines of log entries we wish to preserve in the logs.
     lines_to_keep = int(SETTINGS.entries_to_keep / SETTINGS.lines_to_keep_divider)
     updated_to_keep = int(SETTINGS.entries_to_keep / SETTINGS.updated_to_keep_divider)
+    ops_to_keep = int(SETTINGS.entries_to_keep * SETTINGS.operations_to_keep_multiplier)
 
     # Access the `processed` database, order the posts by oldest first,
     # and then only keep the above number of entries.
@@ -801,6 +811,15 @@ def database_cleanup():
     CURSOR_DATA.execute(delete_command, (updated_to_keep,))
     CONN_DATA.commit()
     logger.info('Cleanup: Last {:,} updated database entries kept.'.format(updated_to_keep))
+
+    # Access the `operations` database, and order the entries by
+    # oldest first.
+    delete_command = ("DELETE FROM posts_operations WHERE id NOT IN "
+                      "(SELECT id FROM posts_operations ORDER BY id DESC LIMIT ?)")
+    CURSOR_DATA.execute(delete_command, (ops_to_keep,))
+    CONN_DATA.commit()
+    logger.info('Cleanup: Last {:,} operations database '
+                'entries kept.'.format(ops_to_keep))
 
     # Clean up the logs. Keep only the last `lines_to_keep` lines.
     with open(FILE_ADDRESS.logs, "r", encoding='utf-8') as f:
@@ -3271,12 +3290,13 @@ def wikipage_editor(subreddit_dictionary, new_subreddits):
     """
     current_now = int(time.time())
     date_today = date_convert_to_string(current_now)
+    alphabetical_list = list(sorted(subreddit_dictionary.keys()))
     logger.info("Wikipage Editor: BEGINNING editing statistics wikipages.")
     logger.debug("Wikipage Editor: Wikipages are for: {}".format(subreddit_dictionary.keys()))
 
     # Iterate over our communities, starting in alphabetical order
     # (numbers, then A-Z).
-    for subreddit_name in sorted(subreddit_dictionary.keys()):
+    for subreddit_name in alphabetical_list:
 
         # We check to see if this subreddit is new. If we have NEVER
         # done statistics for this subreddit before, we will send an
@@ -3320,15 +3340,11 @@ def wikipage_editor(subreddit_dictionary, new_subreddits):
             statistics_wikipage.edit(content=content_data,
                                      reason='Updating with statistics data '
                                             'on {} UTC.'.format(date_today))
-            logger.info('Wikipage Editor: Successfully updated '
-                        'r/{} statistics, {}.'.format(subreddit_name, date_today))
-
         except prawcore.exceptions.TooLarge:
             # The wikipage is going to be too big and is unable to
             # be saved without an error.
             logger.info('Wikipage Editor: The wikipage for '
                         'r/{} is too large.'.format(subreddit_name))
-
         except Exception as exc:
             # Catch-all broader exception during editing. Record to log.
             # This is split off here because this function is run in a
@@ -3336,9 +3352,14 @@ def wikipage_editor(subreddit_dictionary, new_subreddits):
             # Write the error to the error log.
             wiki_error_entry = "\n> {}\n\n".format(exc)
             wiki_error_entry += traceback.format_exc()
-            main_error_log_(wiki_error_entry)
+            main_error_log(wiki_error_entry)
             logger.error('Wikipage Editor: Encountered an error on '
                          'r/{}: {}'.format(subreddit_name, wiki_error_entry))
+        else:
+            logger.info('Wikipage Editor: Successfully updated r/{} statistics, '
+                        '{}. #{}/{}'.format(subreddit_name, date_today,
+                                            alphabetical_list.index(subreddit_name) + 1,
+                                            len(alphabetical_list)))
 
         # If this is a newly added subreddit, send a message to the mods
         # to let them know that their statistics have been posted.
@@ -3894,11 +3915,10 @@ def widget_operational_status_updater():
 
     :return: `None`.
     """
-    current_time = datetime.datetime.fromtimestamp(time.time(),
-                                                   tz=datetime.timezone.utc).isoformat()[:19]
+    current_time = date_time_convert_to_string(time.time())
     wa_time = "{} {} UTC".format(current_time.split('T')[0], current_time.split('T')[1])
     wa_link = "https://www.wolframalpha.com/input/?i={}+to+current+geoip+location".format(wa_time)
-    current_time += '[Z]({})'.format(wa_link)  # UTC time marker.
+    current_time = current_time.replace('Z', '[Z]({})'.format(wa_link))  # Add the link.
 
     # Get the operational status widget.
     operational_id = 'widget_142uuvol5mzqi'
@@ -3912,7 +3932,9 @@ def widget_operational_status_updater():
     # Update the widget with the current time.
     if operational_widget is not None:
         operational_status = '# ✅ {}'.format(current_time)
-        operational_widget.mod.update(text=operational_status)
+        operational_widget.mod.update(text=operational_status,
+                                      styles={'backgroundColor': '#349e48',
+                                              'headerColor': '#222222'})
         return True
     else:
         return False
@@ -4049,23 +4071,24 @@ def advanced_send_alert(submission_obj, list_of_users):
                           They must be moderators.
     :return: Nothing.
     """
+    sub_name = submission_obj.subreddit.display_name.lower()
     for user in list_of_users:
-        if flair_is_user_mod(user, submission_obj.subreddit.display_name):
+        if flair_is_user_mod(user, sub_name):
 
             # Form the message to send to the moderator.
             alert = ("I removed this [unflaired post here]"
                      "(https://www.reddit.com{}).".format(submission_obj.permalink))
             if submission_obj.over_18:
                 alert += " (Warning: This post is marked as NSFW)"
-            alert += BOT_DISCLAIMER.format(submission_obj.display_name)
+            alert += BOT_DISCLAIMER.format(sub_name)
 
             # Send the message to the moderator, accounting for if there
             # is a username error.
-            subject = '[Notification] Post on r/{} removed.'.format(submission_obj.display_name)
+            subject = '[Notification] Post on r/{} removed.'.format(sub_name)
             try:
                 reddit.redditor(user).message(subject=subject, message=alert)
                 logger.info('Send Alert: Messaged u/{} on '
-                            'r/{} about removal.'.format(user, submission_obj.display_name))
+                            'r/{} about removal.'.format(user, sub_name))
             except praw.exceptions.APIException:
                 continue
 
@@ -4211,7 +4234,7 @@ def messaging_flair_sanitizer(text_to_parse, change_case=True):
     return text_to_parse
 
 
-def messaging_parse_flair_response(subreddit_name, response_text):
+def messaging_parse_flair_response(subreddit_name, response_text, post_id):
     """This function looks at a user's response to determine if their
     response is a valid flair in the subreddit that they posted in.
     If it is a valid template, then the function returns a template ID.
@@ -4221,9 +4244,17 @@ def messaging_parse_flair_response(subreddit_name, response_text):
     :param subreddit_name: Name of a subreddit.
     :param response_text: The text that a user sent back as a response
                           to the message.
+    :param post_id: The ID of the submitter's post (used only for action
+                    counting purposes).
     :return: `None` if it does not match anything;
              a template ID otherwise.
     """
+    # Whether or not the message should be saved to a file for record
+    # keeping and examination.
+    to_messages_save = False
+    flair_match_text = None
+    action_type = None
+
     # Process the response from the user to make it consistent.
     response_text = messaging_flair_sanitizer(response_text)
 
@@ -4253,16 +4284,44 @@ def messaging_parse_flair_response(subreddit_name, response_text):
         # No exact match found. Try one last effort.
         # Use fuzzy matching to determine the best match from the flair
         # dictionary. Returns as tuple `('FLAIR', INT)`
-        # If the match is higher than or equal to 95, then assign that
-        # to `returned_template`. Otherwise, `None`.
+        # If the match is higher than or equal to `min_fuzz_ratio`, then
+        # assign that to `returned_template`. Otherwise, `None`.
         best_match = process.extractOne(response_text, list(lowercased_flair_dict.keys()),
                                         scorer=fuzz.WRatio)
         if best_match[1] >= SETTINGS.min_fuzz_ratio:  # We are very sure this is right.
             returned_template = lowercased_flair_dict[best_match[0]]['id']
-            logger.info("Parse Response: > Fuzzed match for `{}`: `{}`".format(best_match[0],
-                                                                               returned_template))
+            flair_match_text = best_match[0]
+            logger.info("Parse Response: > Fuzzed {}% certainty match for "
+                        "`{}`: `{}`".format(best_match[1], flair_match_text, returned_template))
+            main_counter_updater(subreddit_name, action_type="Fuzzed flair match in message",
+                                 post_id=post_id, id_only=True)
+            to_messages_save = True
+            action_type = "Fuzzed"
         else:
             returned_template = None
+
+    # If there was no match (either exact or fuzzed) then this will
+    # check the text itself to see if there are any matching post
+    # flairs contained within it. This is the last attempt.
+    if not returned_template:
+        for flair_text in lowercased_flair_dict.keys():
+            if flair_text in response_text:
+                returned_template = lowercased_flair_dict[flair_text]['id']
+                logger.info("Parse Response: > Found `{}` in text: `{}`".format(flair_text,
+                                                                                returned_template))
+                main_counter_updater(subreddit_name, action_type="Found flair match in message",
+                                     post_id=post_id, id_only=True)
+                to_messages_save = True
+                action_type = "Matched"
+                flair_match_text = flair_text
+                break
+
+    if not returned_template or to_messages_save:
+        message_package = {'subreddit': subreddit_name, 'id': post_id, 'action': action_type,
+                           'message': response_text, 'template_name': flair_match_text,
+                           'template_id': returned_template}
+        main_messages_log(message_package)
+        logger.info("Parse Response: Recorded `{}` to messages log.".format(post_id))
 
     return returned_template
 
@@ -4460,7 +4519,7 @@ def messaging_example_collater(subreddit):
 """MAIN FUNCTIONS"""
 
 
-def main_error_log_(entry):
+def main_error_log(entry):
     """A function to save detailed errors to a log for later review.
     This is easier to check for issues than to search through the entire
     events log, and is based off of a basic version of the function
@@ -4477,6 +4536,35 @@ def main_error_log_(entry):
         error_date_format = datetime.datetime.utcnow().strftime("%Y-%m-%dT%I:%M:%SZ")
         bot_format = "Artemis v{}".format(VERSION_NUMBER)
         f.write("\n---------------\n{} ({})\n{}".format(error_date_format, bot_format, entry))
+
+    return
+
+
+def main_messages_log(data_package):
+    """This function writes to a messages log for messages which are
+    either fuzzed, matched, or did not have a viable match. It's
+    linked to `messaging_parse_flair_response` and will not necessarily
+    write one for all messaging matches, just non-standard ones or no
+    matches at all.
+
+    :param data_package: A dictionary of information passed from the
+                         above function `messaging_parse_flair_response`
+                         to append.
+    :return: `None`.
+    """
+    # Format the line to add to the messages log.
+    line_to_insert = ("\n| {6} | **r/{0}** | `{1}` | [Link](https://redd.it/{1}) "
+                      "| {2} | {3} | `{4}` | `{5}` |")
+    line_to_insert = line_to_insert.format(data_package['subreddit'], data_package['id'],
+                                           data_package['action'],
+                                           data_package['message'].replace('\n', ' '),
+                                           data_package['template_name'],
+                                           data_package['template_id'],
+                                           date_convert_to_string(time.time()))
+
+    # Open the file in append mode and add the new line.
+    with open(FILE_ADDRESS.messages, 'a+', encoding='utf-8') as f:
+        f.write(line_to_insert)
 
     return
 
@@ -4547,42 +4635,52 @@ def main_counter_updater(subreddit_name, action_type, action_count=1,
     # If the data is for a single post, we can save it to the
     # per-post ID operations log.
     if action_count == 1 and post_id:
-        with open(FILE_ADDRESS.operations, 'r', encoding='utf-8') as f:
-            operations_data = yaml.safe_load(f.read())
+        CURSOR_DATA.execute('SELECT * FROM posts_operations WHERE id = ?', (post_id,))
+        operation_result = CURSOR_DATA.fetchone()
 
-        # In case the main file is blank, recreate it.
-        if not operations_data:
-            operations_data = {}
+        # In case the main file is blank, recreate it. Note that the
+        # insertion command reverses the order of the columns.
+        if not operation_result:
+            operation_result = {}
+            op_command = "INSERT INTO posts_operations (operations, id) VALUES (?, ?)"
+        else:
+            operation_result = literal_eval(operation_result[1])  # This is a dictionary.
+            op_command = "UPDATE posts_operations SET operations = ? WHERE id = ?"
 
         # Create the data package to update the main dictionary with.
         post_package = {int(time.time()): action_type}
-        if post_id in operations_data:
-            operations_data[post_id].update(post_package)
+        if operation_result:
+            operation_result.update(post_package)
         else:
-            operations_data[post_id] = post_package
-        with open(FILE_ADDRESS.operations, 'w', encoding='utf-8') as f:
-            yaml.dump(operations_data, f, sort_keys=True, indent=4)
+            operation_result = post_package
 
-    # Exit early if all we want is to record to that actions log.
+        CURSOR_DATA.execute(op_command, (str(operation_result), post_id))
+        CONN_DATA.commit()
+
+    # Exit early if all we want is to record to that operations log.
     if id_only:
         return
 
-    # Make the name lowercase.
+    # Make the name lowercase. If the subreddit is `None`, exit.
     if subreddit_name:
         subreddit_name = subreddit_name.lower()
+    else:
+        return
 
     # Access the database to see if we have recorded actions for this
     # subreddit already.
     CURSOR_DATA.execute('SELECT * FROM subreddit_actions WHERE subreddit = ?', (subreddit_name,))
     result = CURSOR_DATA.fetchone()
 
-    if result is None:  # No actions data recorded. Create a new dictionary and save it.
+    # No actions data recorded. Create a new dictionary and save it.
+    if result is None:
         actions_dictionary = {action_type: action_count}
         data_package = (subreddit_name, str(actions_dictionary))
         CURSOR_DATA.execute('INSERT INTO subreddit_actions VALUES (?, ?)', data_package)
         CONN_DATA.commit()
     else:  # We already have an entry recorded for this.
-        actions_dictionary = literal_eval(result[1])  # Convert this back into a dictionary.
+        # Convert this back into a dictionary.
+        actions_dictionary = literal_eval(result[1])
         # Check the data in the database. Update it if it exists,
         # otherwise create a new dictionary item.
         if action_type in actions_dictionary:
@@ -4928,6 +5026,11 @@ def main_timer(manual_start=False):
     monitored_list = database_monitored_subreddits_retrieve()
     main_config_retriever()
 
+    # Temporary dictionary that stores formatted data for statistics
+    # pages, which is cleared after the daily statistics run.
+    # This was originally a global variable.
+    updater_dictionary = {}
+
     # On a few specific days, run the userflair updating thread first in
     # order to not conflict with the main runtime.
     # This is currently set for 1st and 15th of each month, and more
@@ -4983,7 +5086,7 @@ def main_timer(manual_start=False):
     # This is mostly in case of a crash during the statistics-gathering
     # period, so the bot can start where it left off.
     # This should *not* run the first time, because both the cache and
-    # `UPDATER_DICTIONARY` should have a length of zero.
+    # `updater_dictionary` should have a length of zero.
     CURSOR_DATA.execute("SELECT * FROM cache_statistics WHERE date = ?", (current_date_string,))
     cached_results = CURSOR_DATA.fetchall()
 
@@ -4995,7 +5098,7 @@ def main_timer(manual_start=False):
     # crash since there will not be cached data under normal times.
     # `results` would be the cached data.
     if len(cached_results) != 0:
-        existing_updater_dict = {}
+        cached_updater_dict = {}
         # Check for which subreddits' data have already been updated.
         # If they have already been updated we don't want to pass them
         # into the reloaded dictionary from cache.
@@ -5004,16 +5107,16 @@ def main_timer(manual_start=False):
         already_updated = CURSOR_DATA.fetchall()
         already_updated = [x[0] for x in already_updated]
 
-        # Add cached subreddit statistics data into UPDATER_DICTIONARY
+        # Add cached subreddit statistics data into updater_dictionary
         # if the subreddit has not already been listed as updated.
         for result in cached_results:
             cached_subreddit = result[1]
             cached_data = str(result[2])  # Data formatted as Markdown.
             if cached_subreddit not in already_updated:
-                existing_updater_dict[cached_subreddit] = cached_data
-        if len(existing_updater_dict) > 0 and len(UPDATER_DICTIONARY) == 0:
+                cached_updater_dict[cached_subreddit] = cached_data
+        if len(cached_updater_dict) > 0 and len(updater_dictionary) == 0:
             logger.info('Main Timer: Reloading the blank updater dictionary from cache.')
-            UPDATER_DICTIONARY.update(existing_updater_dict)
+            updater_dictionary.update(cached_updater_dict)
 
     # Fetch the list of new and paused statistics subreddits.
     new_subreddits = wikipage_get_new_subreddits()
@@ -5039,7 +5142,7 @@ def main_timer(manual_start=False):
             # Reset the initialize time and save the current state of
             # the updater dictionary to cache.
             logger.info('Main Timer: Cycle RESET started.\n')
-
+            """
             # The following part is to save the data to cache so it can
             # be resumed in case of an error.
             logger.info('Main Timer: Saving current updater dictionary state to cache...')
@@ -5060,27 +5163,27 @@ def main_timer(manual_start=False):
 
             # Iterate over the subreddits which have unsaved data, and
             # save their data. Indexed by key.
-            for unsaved in UPDATER_DICTIONARY.keys() - already_saved:
+            for unsaved in updater_dictionary.keys() - already_saved:
                 # Replace into the cache database. This will change the
                 # information to the most up-to-date version.
-                replace = (current_date_string, unsaved, str(UPDATER_DICTIONARY[unsaved]))
+                replace = (current_date_string, unsaved, str(updater_dictionary[unsaved]))
                 c = 'REPLACE INTO cache_statistics (date, subreddit, stored_data) VALUES (?, ? ,?)'
                 CURSOR_DATA.execute(c, replace)
                 CONN_DATA.commit()
                 logger.debug('Main Timer: Cached r/{} statistics '
                              'for {}.'.format(unsaved, current_date_string))
-
+            """
             # Make a copy of the updater dictionary and pass it
             # to the wikipage editor. Then clear the updater dictionary.
             # Start the secondary wiki updating thread.
-            dictionary_to_update = UPDATER_DICTIONARY.copy()
+            dictionary_to_update = updater_dictionary.copy()
             writing_thread = Thread(target=wikipage_editor,
                                     kwargs=dict(subreddit_dictionary=dictionary_to_update,
                                                 new_subreddits=new_subreddits))
             writing_thread.start()
             logger.info("Main Timer: Passed for editing: "
                         "r/{}".format(", r/".join(list(dictionary_to_update.keys()))))
-            UPDATER_DICTIONARY.clear()
+            updater_dictionary.clear()
 
             # Update the status widget.
             widget_status_updater(cycle_position, len(monitored_list), current_date_string,
@@ -5094,7 +5197,7 @@ def main_timer(manual_start=False):
             logger.info('Main Timer: Fetching submissions...')
             if not manual_start:
                 main_messaging(regular_cycle=False)
-            main_get_submissions()
+            main_get_submissions(statistics_mode=True)
             main_flair_checker()
 
             # Finally, reset the start time.
@@ -5167,8 +5270,8 @@ def main_timer(manual_start=False):
         subreddit_statistics_recorder_daily(community, previous_date_string)
 
         # Compile the post statistics text and add it to our dictionary.
-        if community not in UPDATER_DICTIONARY:
-            UPDATER_DICTIONARY[community] = wikipage_collater(community)
+        if community not in updater_dictionary:
+            updater_dictionary[community] = wikipage_collater(community)
             logger.info("Main Timer: Compiled statistics wikipage for r/{}.".format(community))
 
         # Update the counter, as all processes are done for this sub.
@@ -5182,15 +5285,15 @@ def main_timer(manual_start=False):
     # Initialize a secondary writing thread to update wiki pages
     # separately. We pass arguments according to this:
     # http://blog.acipo.com/python-threading-arguments/
-    if len(UPDATER_DICTIONARY) != 0:
+    if len(updater_dictionary) != 0:
         # Start the secondary wiki updating thread by making a final
         # copy, then clearing out the master dictionary.
-        dictionary_to_update_final = UPDATER_DICTIONARY.copy()
+        dictionary_to_update_final = updater_dictionary.copy()
         writing_thread = Thread(target=wikipage_editor,
                                 kwargs=dict(subreddit_dictionary=dictionary_to_update_final,
                                             new_subreddits=new_subreddits))
         writing_thread.start()
-        UPDATER_DICTIONARY.clear()
+        updater_dictionary.clear()
 
         # Clear the cached statistics data for the day as we don't
         # need it anymore.
@@ -5472,6 +5575,126 @@ def main_obtain_mentions():
             logger.info('Obtain Mentions: Sent my creator a message about item `{}`.'.format(key))
 
     return
+
+
+def main_parse_operations(id_list, specific_subreddit=None):
+    """This function looks at the operations table of the posts passed
+    into it as a list, and then returns a Markdown segment with tables
+    of the Artemis operations conducted on those posts.
+    If the function is fed bad data it will just return `None`.
+
+    :param id_list: A list of Reddit submission IDs.
+    :param specific_subreddit: If a normal moderator is requesting this
+                               information, they can only see the
+                               operations for posts in their subreddit.
+                               If set to `None` (only for creator) then
+                               all posts' information can be seen.
+    :return: A Markdown formatted segment if information is obtained,
+            otherwise, `None`.
+    """
+    operations_dictionary = {}
+
+    # Retrieve the submissions from Reddit as PRAW objects. If invalid
+    # this will return an empty list which can be used as a means to
+    # exit the function. This also accounts for an empty or duplicates
+    # in the passed list.
+    if not id_list:
+        return
+    else:
+        id_list = list(set(id_list))
+    fullnames_list = ["t3_" + x for x in id_list]
+    reddit_submissions = list(reddit.info(fullnames=fullnames_list))
+    if not reddit_submissions:
+        return
+
+    # Iterate over each ID and place the PRAW object
+    # as well as the retrieved dictionary in a tuple for it.
+    for post_id in id_list:
+        # Check to see that the post actually belongs to the
+        # specified subreddit.
+        try:
+            equivalent_submission = [x for x in reddit_submissions if x.id == post_id][0]
+        except IndexError:  # This is not recorded as a PRAW object.
+            continue
+        post_subreddit = equivalent_submission.subreddit.display_name.lower()
+
+        # Exit early if the post's subreddit does not match the one
+        # the function is supposed to grab. If the specific subreddit is
+        # `None`, then it's from my creator and the information *can*
+        # be returned.
+        if specific_subreddit and specific_subreddit != post_subreddit:
+            continue
+
+        # Fetch the local operations data.
+        CURSOR_DATA.execute('SELECT * FROM posts_operations WHERE id = ?', (post_id,))
+        operation_result = CURSOR_DATA.fetchone()
+        if not operation_result:  # Exit if no local results.
+            continue
+
+        operation_dict = literal_eval(operation_result[1])
+        operations_dictionary[post_id] = (equivalent_submission, operation_dict)
+
+    # Iterate over our dictionary and generate a formatted chunk for
+    # each submission.
+    ids_formatted = []
+    for post_id in list(sorted(operations_dictionary.keys())):
+        praw_object = operations_dictionary[post_id][0]
+        dict_object = operations_dictionary[post_id][1]
+        item_created = date_time_convert_to_string(praw_object.created_utc)
+
+        # Get the author.
+        try:
+            author = praw_object.author.name
+        except AttributeError:
+            author = "[deleted]"
+
+        # Get the post flair text and sanitize it for formatting. Then,
+        # form a header.
+        header = "#### [{}]({})\n\n* **Post ID**: `{}`\n* **Author**: u/{}\n"
+        header = header.format(praw_object.title, praw_object.permalink, post_id, author)
+        if praw_object.link_flair_text:
+            rendered_flair = messaging_flair_sanitizer(praw_object.link_flair_text, False)
+        else:
+            rendered_flair = "None"
+        header += "* **Created**: {}\n* **Current Post Flair**: {}".format(item_created,
+                                                                           rendered_flair)
+        # Try to get the "removed" status of the object. This will fail
+        # if the bot does not have the `posts` mod permission.
+        try:
+            header += "\n* **Currently Removed?**: {}".format(praw_object.removed)
+        except AttributeError:
+            pass
+
+        # Now iterate over the operations and form a table.
+        # Note that the created time of the post is added as the first
+        # line in the table.
+        table_lines = ["| {} | User created post |".format(item_created)]
+        table_header = "\n\n| Time (UTC) | Action |\n|------------|--------|\n"
+        for item in list(sorted(dict_object.keys())):
+            line = "| {} | {} |".format(date_time_convert_to_string(item), dict_object[item])
+            table_lines.append(line)
+        table = table_header + '\n'.join(table_lines)
+
+        # Combine everything for this particular post.
+        id_body = header + table
+        ids_formatted.append(id_body)
+
+    # Combine everything from all posts together.
+    if not ids_formatted:
+        return None
+    else:
+        combined_header = ("*Here are the Artemis actions data for {} "
+                           "submission(s)*:\n\n---\n\n".format(len(ids_formatted)))
+        combined_text = combined_header + "\n\n".join(ids_formatted)
+        main_counter_updater(specific_subreddit, "Retrieved query data",
+                             action_count=len(ids_formatted))
+        if len(combined_text) >= 10000:
+            combined_text = combined_text[:9500] + ("\n\n---*This message has been truncated due "
+                                                    "to private message length limits on Reddit. "
+                                                    "Please try fewer IDs per query.")
+            logger.info('Parse Operations: Text too long. Truncated and added reply.')
+
+        return combined_text
 
 
 def main_post_approval(submission, template_id=None):
@@ -5766,21 +5989,9 @@ def main_messaging(regular_cycle=True):
                 # Secondly, initiate the update cycle.
                 main_timer(manual_start=True)
                 message.reply('Messaging: Finished retrieving statistics.')
-            elif 'operations' in msg_subject:
-                # This fetches the operations that have been performed
-                # by the bot on specific IDs.
-                list_of_ids = msg_body.lower().split(',')
-                list_of_ids = [x.strip() for x in list_of_ids]
-                reply_data = {}
-
-                with open(FILE_ADDRESS.operations, 'r', encoding='utf-8') as f:
-                    operations_data = yaml.safe_load(f.read())
-                for post_id in list_of_ids:
-                    if post_id in operations_data:
-                        reply_data[post_id] = operations_data[post_id]
-                    else:
-                        reply_data[post_id] = None
-                message.reply('Messaging: Operations data is:\n\n    {}'.format(reply_data))
+            elif 'kill' in msg_subject:
+                message.reply('Messaging: Terminated process runtime.')
+                sys.exit()
 
         # FLAIR ENFORCEMENT AND SELECTION
         # If the reply is to a flair enforcement message, we process it
@@ -5803,7 +6014,8 @@ def main_messaging(regular_cycle=True):
 
                 # Check if reply matches a template for the subreddit.
                 # This returns a template ID or `None`.
-                template_result = messaging_parse_flair_response(relevant_subreddit, msg_body)
+                template_result = messaging_parse_flair_response(relevant_subreddit, msg_body,
+                                                                 relevant_post_id)
 
                 # If there's a matching template and the original sender
                 # of the chain is Artemis, we set the post flair.
@@ -6176,6 +6388,38 @@ def main_messaging(regular_cycle=True):
                 logger.info('Messaging: > No `flair` mod permission '
                             'on r/{}.'.format(new_subreddit))
 
+        elif 'query' in msg_subject:
+            # This fetches the operations that have been performed
+            # by the bot on specific IDs.
+            # This code allows for the input of long-form and short-form
+            # links, as well as individual Reddit post IDs.
+            extracted_ids = []
+            list_of_items = re.split(r',|;|\s|\n', msg_body.lower())
+            for item in list_of_items:
+                if "comments" in item:
+                    extracted_id = re.search(r'.*?comments/(\w+)/.*', item).group(1)
+                elif "redd.it" in item:
+                    extracted_id = re.search(r'(?:redd.it/)(.*)(?:/|\b)', item).group(1)
+                else:
+                    extracted_id = str(item)
+                if extracted_id:
+                    extracted_ids.append(extracted_id.strip())
+
+            # If the person who sent it was my creator, allow for full
+            # access. Otherwise, restrict to the subreddit it came from.
+            if msg_author == AUTH.creator:
+                subreddit_check = None
+            else:
+                subreddit_check = str(new_subreddit)
+            operations_info = main_parse_operations(extracted_ids, subreddit_check)
+            if operations_info:
+                op_reply = operations_info
+            else:
+                op_reply = str(MSG_MOD_QUERY_NONE)
+            message.reply(op_reply + BOT_DISCLAIMER.format(subreddit_check))
+            logger.info('Messaging: Sent query operations data for `{}` '
+                        'to r/{}.'.format(extracted_ids, new_subreddit))
+
         elif 'has been removed as a moderator from' in msg_subject:
             # Artemis was removed as a mod from a subreddit.
             # Delete from the monitored database.
@@ -6286,6 +6530,9 @@ def main_get_posts_frequency():
     time_difference = (int(time.time()) - int(posts[0].created_utc))
     interval_between_posts = time_difference / SETTINGS.max_get_posts
     boundary_posts = int(time_interval / interval_between_posts)
+    logger.info('Get Posts Frequency: {:,} posts came in the last {:.2f} '
+                'minutes. New post every {:.2f} seconds.'.format(len(posts), time_difference / 60,
+                                                                 interval_between_posts))
 
     # Next we determine how many posts Artemis should *fetch* in a 15
     # minute period defined by the data. That number is 2 times the
@@ -6305,8 +6552,12 @@ def main_get_posts_frequency():
         logger.info('Get Posts Frequency: Limit set to '
                     'minimum limit of {} posts.'.format(SETTINGS.min_get_posts))
     else:
-        logger.info('Get Posts Frequency: {} posts / {} minutes.'.format(NUMBER_TO_FETCH,
-                                                                         int(time_interval / 60)))
+        logger.info('Get Posts Frequency: Adjusted: '
+                    '{} posts / {} minutes.'.format(NUMBER_TO_FETCH, int(time_interval / 60)))
+        logger.info('Get Posts Frequency: Actual: {:.2f} posts '
+                    'per minute.'.format(NUMBER_TO_FETCH / 120))
+        logger.info('Get Posts Frequency: {:.0f} posts per '
+                    'isochronism per section.'.format(NUMBER_TO_FETCH / SETTINGS.num_chunks))
 
     return
 
@@ -6334,7 +6585,7 @@ def main_get_posts_sections():
     return final_components
 
 
-def main_get_submissions():
+def main_get_submissions(statistics_mode=False):
     """This function checks all the monitored subreddits' submissions
     and checks for new posts.
     If a new post does not have a flair, it will send a message to the
@@ -6342,6 +6593,8 @@ def main_get_submissions():
     If Artemis also has `posts` mod permissions, it will *also* remove
     that post until the user selects a flair.
 
+    :param statistics_mode: Whether or not this is being run within
+                            statistics mode.
     :return: Nothing.
     """
     # Access the posts from my moderated communities and add them to a
@@ -6356,9 +6609,12 @@ def main_get_submissions():
         if ISOCHRONISMS == 0:
             logger.info('Get: Starting fresh for section number {} '
                         'as there are 0 isochronisms.'.format(sections.index(section) + 1))
-            posts += list(reddit.subreddit(section).new(limit=1000))
+            pull_num = 1000
+        elif statistics_mode and ISOCHRONISMS != 0:
+            pull_num = int(NUMBER_TO_FETCH)
         else:
-            posts += list(reddit.subreddit(section).new(limit=NUMBER_TO_FETCH))
+            pull_num = int(NUMBER_TO_FETCH / SETTINGS.num_chunks)
+        posts += list(reddit.subreddit(section).new(limit=pull_num))
     posts.sort(key=lambda x: x.id.lower())
     processed = []  # List containing processed IDs as tuples.
 
@@ -6687,6 +6943,7 @@ def external_artemis_monthly_statistics(month_string):
     added_subreddits = {}
     formatted_subreddits = []
     actions_total = {}
+    actions_flaired = {}
     posts = {}
 
     # Omit these actions from the chart.
@@ -6737,8 +6994,8 @@ def external_artemis_monthly_statistics(month_string):
     list_of_days.sort()
     for action in list_of_actions:
         actions_total[action] = 0
-    header = "Day | " + " | ".join(list_of_actions)
-    divider = "---|---" * len(list_of_actions)
+    header = "Date | " + " | ".join(list_of_actions)
+    divider = "----|---" * len(list_of_actions)
 
     # Iterate over the days and form line-by-line actions.
     for day in list_of_days:
@@ -6748,6 +7005,8 @@ def external_artemis_monthly_statistics(month_string):
             if action in day_data:
                 formatted_components.append("{:,}".format(day_data[action]))
                 actions_total[action] += day_data[action]
+                if action.startswith('Flaired'):
+                    actions_flaired[day] = day_data[action]
             else:
                 formatted_components.append('---')
         day_line = "| {} | {} ".format(day, ' | '.join(formatted_components))
@@ -6759,6 +7018,46 @@ def external_artemis_monthly_statistics(month_string):
         formatted_components.append("{:,}".format(actions_total[action]))
     total_line = "| **Total** | {} ".format(' | '.join(formatted_components))
     list_of_lines.append(total_line)
+
+    # Calculate the result of actions upon messages. This will also
+    # calculate the percentage of each action per day.
+    messages_dict = {}
+    messages_lines = []
+    messages_header = ('### Daily Flairing Messages\n\n'
+                       '| Date | Total messages | Directly flaired | Fuzzed | Matched | Passed |\n'
+                       '|------|----------------|------------------|--------|---------|--------|\n')
+    with open(FILE_ADDRESS.messages, 'r', encoding='utf-8') as f:
+        messages_data = f.read()
+    messages_list = messages_data.split('\n')[2:]  # Skip table headers.
+
+    # Process the messages list into a dictionary indexed by date.
+    # Within each date entry is a dictionary with actions.
+    for entry in messages_list:
+        message_date = entry.split('|')[1].strip()
+        message_action = entry.split('|')[5].strip()
+        if message_date in messages_dict:
+            if message_action in messages_dict[message_date]:
+                messages_dict[message_date][message_action] += 1
+            else:
+                messages_dict[message_date][message_action] = 1
+        else:
+            messages_dict[message_date] = {message_action: 1}
+    message_line = "| {} | {} | {} ({:.2%}) | {} ({:.2%}) | {} ({:.2%}) | {} ({:.2%}) |"
+    for day in list_of_days:
+        successful_count = actions_flaired[day]
+        if day in messages_dict:
+            fuzzed_count = messages_dict[day].get('Fuzzed', 0)
+            matched_count = messages_dict[day].get('Matched', 0)
+            passed_count = messages_dict[day].get('None', 0)
+            total = successful_count + fuzzed_count + matched_count + passed_count
+        else:
+            fuzzed_count = matched_count = passed_count = 0
+            total = int(successful_count)
+        line = message_line.format(day, total, successful_count, successful_count / total,
+                                   fuzzed_count, fuzzed_count / total, matched_count,
+                                   matched_count / total, passed_count, passed_count / total)
+        messages_lines.append(line)
+    messages_body = messages_header + '\n'.join(messages_lines)
 
     # Collect the number of posts across ALL subreddits.
     # This also adds a final line summing up everything.
@@ -6779,11 +7078,11 @@ def external_artemis_monthly_statistics(month_string):
         line = "| {} | {:,} |".format(day, posts[day])
         list_of_posts.append(line)
     list_of_posts.append('| **Total** | {:,} |'.format(posts_total))
-    posts_data = ("### Daily Processed Posts\n\n| Day | Number of Posts |"
-                  "\n|-----|-----------------|\n{}".format('\n'.join(list_of_posts)))
+    posts_data = ("### Daily Processed Posts\n\n| Date | Number of Posts |"
+                  "\n|------|-----------------|\n{}".format('\n'.join(list_of_posts)))
 
     # Finalize the text to return.
-    body = "{}\n\n{}\n\n### Daily Actions\n\n".format(added_section, posts_data)
+    body = "{}\n\n{}\n\n{}\n\n### Daily Actions\n\n".format(added_section, posts_data, messages_body)
     body += "{}\n{}\n{}".format(header, divider, "\n".join(list_of_lines))
 
     return body
@@ -6881,6 +7180,9 @@ try:
             mem_num = psutil.Process(os.getpid()).memory_info().rss
             mem_usage = "Memory usage: {:.3f} MB.".format(mem_num / (1024 * 1024))
             logger.info("------- Isochronism {:,} COMPLETE. {}\n".format(ISOCHRONISMS, mem_usage))
+        except SystemExit:
+            logger.info('Manual user shutdown via message.')
+            sys.exit()
         except Exception as e:
             # Artemis encountered an error/exception, and if the error
             # is not a common connection issue, log it in a separate
@@ -6889,11 +7191,11 @@ try:
             error_entry += traceback.format_exc()
             logger.error(error_entry)
             if not any(keyword in error_entry for keyword in SETTINGS.conn_errors):
-                main_error_log_(error_entry)
+                main_error_log(error_entry)
 
         ISOCHRONISMS += 1
         time.sleep(SETTINGS.wait)
 except KeyboardInterrupt:
     # Manual termination of the script with Ctrl-C.
-    logger.info('Manual user shutdown.')
+    logger.info('Manual user shutdown via keyboard.')
     sys.exit()
