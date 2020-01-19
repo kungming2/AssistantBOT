@@ -1,5 +1,7 @@
 # Number of seconds Artemis waits in between isochronisms.
 wait: 30
+# Number of isochronisms to cycle before updating post frequency.
+post_frequency_cycles: 50
 # Number of chunks to split flair enforced subreddits into in order to
 # retrieve their submissions.
 num_chunks: 4
@@ -136,4 +138,3 @@ milestones:
     - 20000000
     - 25000000
     - 30000000
-    
