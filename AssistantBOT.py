@@ -45,7 +45,7 @@ from _text import *
 
 """INITIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "1.8.3 Icaco"
+VERSION_NUMBER = "1.8.5 Icaco"
 
 # Define the location of the main files Artemis uses.
 # They should all be in the same folder as the Python script itself.
@@ -831,7 +831,7 @@ def database_cleanup():
         lines_entries = lines_entries[(-1 * lines_to_keep):]
         with open(FILE_ADDRESS.logs, "w", encoding='utf-8') as f:
             f.write("\n".join(lines_entries))
-    logger.info('Cleanup: Last {:,} log entries kept.'.format(lines_to_keep))
+        logger.info('Cleanup: Last {:,} log entries kept.'.format(lines_to_keep))
 
     return
 
@@ -1296,7 +1296,7 @@ def subreddit_pushshift_access(query_string, retries=3):
             returned_data = requests.get(query_string)
             returned_data = returned_data.json()
             return returned_data  # Return data as soon as it is found.
-        except (ValueError, ConnectionError, HTTPError):
+        except (ValueError, ConnectionError, HTTPError, requests.exceptions.ChunkedEncodingError):
             continue
 
     return {}
@@ -3372,8 +3372,9 @@ def wikipage_editor(subreddit_dictionary, new_subreddits):
             logger.info('Wikipage Editor: Sent first wiki edit message '
                         'to r/{} mods.'.format(subreddit_name))
 
-    logger.info("Wikipage Editor: COMPLETED editing statistics "
-                "wikipages in {} seconds.".format(int(time.time() - current_now)))
+    logger.info("Wikipage Editor: COMPLETED editing {} statistics "
+                "wikipages in {} seconds.".format(len(subreddit_dictionary),
+                                                  int(time.time() - current_now)))
 
     return
 
@@ -3916,7 +3917,7 @@ def widget_operational_status_updater():
     :return: `None`.
     """
     current_time = date_time_convert_to_string(time.time())
-    wa_time = "{} {} UTC".format(current_time.split('T')[0], current_time.split('T')[1])
+    wa_time = "{} {} UTC".format(current_time.split('T')[0], current_time.split('T')[1][:-1])
     wa_link = "https://www.wolframalpha.com/input/?i={}+to+current+geoip+location".format(wa_time)
     current_time = current_time.replace('Z', '[Z]({})'.format(wa_link))  # Add the link.
 
@@ -4280,10 +4281,12 @@ def messaging_parse_flair_response(subreddit_name, response_text, post_id):
         returned_template = lowercased_flair_dict[response_text]['id']
         logger.debug("Parse Response: > Found r/{} template: `{}`.".format(subreddit_name,
                                                                            returned_template))
+        main_counter_updater(subreddit_name, action_type="Parsed exact flair in message",
+                             post_id=post_id, id_only=True)
     else:
-        # No exact match found. Try one last effort.
-        # Use fuzzy matching to determine the best match from the flair
-        # dictionary. Returns as tuple `('FLAIR', INT)`
+        # No exact match found. Use fuzzy matching to determine the
+        # best match from the flair dictionary.
+        # Returns as tuple `('FLAIR' (text), INT)`
         # If the match is higher than or equal to `min_fuzz_ratio`, then
         # assign that to `returned_template`. Otherwise, `None`.
         best_match = process.extractOne(response_text, list(lowercased_flair_dict.keys()),
@@ -4321,7 +4324,7 @@ def messaging_parse_flair_response(subreddit_name, response_text, post_id):
                            'message': response_text, 'template_name': flair_match_text,
                            'template_id': returned_template}
         main_messages_log(message_package)
-        logger.info("Parse Response: Recorded `{}` to messages log.".format(post_id))
+        logger.info("Parse Response: >> Recorded `{}` to messages log.".format(post_id))
 
     return returned_template
 
@@ -4863,10 +4866,7 @@ def main_maintenance_secondary():
 
     :return: `None`.
     """
-    # Refresh the configuration data.
-    main_get_posts_frequency()
-
-    # Check if there are any mentions and mark all modmail as read.
+    # Check if there are any mentions and update comparison widget
     main_obtain_mentions()
     widget_comparison_updater()
 
@@ -5410,50 +5410,6 @@ def main_obtain_mod_permissions(subreddit_name):
         my_perms = me_as_mod.mod_permissions
 
     return am_mod, my_perms
-
-
-def main_read_modmail():
-    """The purpose of this function is to simply mark as read the
-    modmail on the subreddits it has access to. It does not need to use
-    the database so it is run in a separate secondary thread.
-    This is done just so that there aren't a ton of unread modmail
-    notifications piling up; Artemis does not do anything with the mail.
-    DEPRECATED AND UNUSED.
-
-    :return: `None`.
-    """
-    all_subs = {}
-    list_with_modmail = []
-    modmail_start = time.time()
-
-    # Get the list of all monitored subreddits (this is NOT database
-    # dependent). For each fetch the real name of the subreddit, and the
-    # fullname ID of the subreddit, prefixed with `t5_`.
-    returned_data = reddit.get('/user/{}/moderated_subreddits'.format(AUTH.username))['data']
-    for item in returned_data:
-        modded_sub = item['sr'].lower()
-        all_subs[modded_sub] = item['name'].lower()  # Fullname.
-
-    # Fetch the subreddits we have modmail access to, convert them to
-    # PRAW objects, and append to a list.
-    for subreddit in all_subs.keys():
-        if any(x in main_obtain_mod_permissions(subreddit)[1] for x in ['mail', 'all']):
-            list_with_modmail.append(all_subs[subreddit])
-    list_with_modmail = list(reddit.info(fullnames=list_with_modmail))
-    logger.info('Read Modmail: Modmail perms on {} subreddits. '
-                'Marking as read.'.format(len(list_with_modmail)))
-
-    # Now I mark the modmail conversations as read, going through each
-    # subreddit individually.
-    for subreddit in list_with_modmail:
-        try:
-            subreddit.modmail.bulk_read(state='all')
-        except prawcore.exceptions.Forbidden:
-            continue
-    modmail_end = int(round((time.time() - modmail_start) / 60, 2))
-    logger.info('Read Modmail: All completed. Elapsed time: {}m.'.format(modmail_end))
-
-    return
 
 
 def main_recheck_oldest():
@@ -6028,7 +5984,7 @@ def main_messaging(regular_cycle=True):
         # Otherwise, reject non-subreddit messages. Flair enforcement
         # replies to regular users were done earlier.
         if msg_subreddit is None:
-            logger.debug('Messaging: > Message "{}" not from a subreddit.'.format(msg_subject))
+            logger.debug('Messaging: > Message "{}" is not from a subreddit.'.format(msg_subject))
             continue
 
         # MODERATION-RELATED MESSAGING FUNCTIONS
@@ -6356,7 +6312,7 @@ def main_messaging(regular_cycle=True):
                 logger.info('Messaging: > Config data for r/{} reverted.'.format(new_subreddit))
 
         elif 'userflair' in msg_subject:
-            # Not surfaced at the moment, but still here for
+            # DEPRECATED, but still here for
             # compatibility due to its announcement in v1.5 Fir.
             logger.info('Messaging: New message to toggle r/{} userflair.'.format(new_subreddit))
             relevant_extended = database_extended_retrieve(new_subreddit)
@@ -6682,7 +6638,9 @@ def main_get_submissions(statistics_mode=False):
 
         # Insert this post's ID into the processed list for insertion.
         # This is done as a tuple.
-        processed.append((post_id,))
+        CURSOR_DATA.execute('INSERT INTO posts_processed VALUES(?)', (post_id,))
+        CONN_DATA.commit()
+        processed.append(post_id)
         log_line = ('Get: New Post "{}" on r/{} (https://redd.it/{}), flaired with "{}". '
                     'Added to processed database.')
         logger.info(log_line.format(post_title, post_subreddit, post_id, post_flair_text))
@@ -6824,12 +6782,10 @@ def main_get_submissions(statistics_mode=False):
             logger.debug('Get: >> Post `{}` already has a flair. Doing nothing.'.format(post_id))
             continue
 
-    # At the end, insert all the processed IDs into the database from
-    # the `processed` list at once.
+    # At the end, list the number of insertions into the `processed`
+    # database out of all the ones fetched.
     if processed:
-        CURSOR_DATA.executemany('INSERT INTO posts_processed VALUES (?)', processed)
-        CONN_DATA.commit()
-        logger.info('Get: Insertion of {} new post IDs out of {} into processed '
+        logger.info('Get: Retrieval of {} new post IDs out of {} into processed '
                     'database COMPLETE.'.format(len(processed), len(posts)))
 
     return
@@ -7084,7 +7040,8 @@ def external_artemis_monthly_statistics(month_string):
                   "\n|------|-----------------|\n{}".format('\n'.join(list_of_posts)))
 
     # Finalize the text to return.
-    body = "{}\n\n{}\n\n{}\n\n### Daily Actions\n\n".format(added_section, posts_data, messages_body)
+    body = "{}\n\n{}\n\n{}\n\n### Daily Actions\n\n".format(added_section, posts_data,
+                                                            messages_body)
     body += "{}\n{}\n{}".format(header, divider, "\n".join(list_of_lines))
 
     return body
@@ -7173,6 +7130,13 @@ try:
         try:
             print('')
             logger.info("------- Isochronism {:,} START.".format(ISOCHRONISMS))
+
+            # Every `post_frequency_cycles` recheck the frequency of
+            # posts that come in to moderated subreddits.
+            if not ISOCHRONISMS % SETTINGS.post_frequency_cycles and ISOCHRONISMS != 0:
+                main_get_posts_frequency()
+
+            # Main runtime functions.
             main_messaging()
             main_get_submissions()
             main_flair_checker()
