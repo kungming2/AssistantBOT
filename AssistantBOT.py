@@ -45,7 +45,7 @@ from _text import *
 
 """INITIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "1.8.5 Icaco"
+VERSION_NUMBER = "1.8.6 Icaco"
 
 # Define the location of the main files Artemis uses.
 # They should all be in the same folder as the Python script itself.
@@ -2304,8 +2304,8 @@ def subreddit_pushshift_activity_collater(input_dictionary, search_type, num_day
         # If we have a time frame of how many days we're
         # getting, let's get the average.
         num_average = sum(input_dictionary.values()) / num_days
-        average_line = "\n\n*Average {0}s per day*: **{1:,.2f}** {0}s.".format(search_type,
-                                                                               int(num_average))
+        average_line = "\n\n*Average {0}s per day*: **{1:,}** {0}s.".format(search_type,
+                                                                            int(num_average))
     else:
         average_line = str(unavailable)
 
@@ -3006,6 +3006,9 @@ def wikipage_creator(subreddit_name):
         stats_wikipage = None
         logger.info("Wikipage Creator: Insufficient mod privileges "
                     "to edit wiki on r/{}.".format(subreddit_name))
+
+    # Add bot as wiki contributor.
+    r.wiki.contributor.add(AUTH.username)
 
     return stats_wikipage
 
@@ -5142,37 +5145,7 @@ def main_timer(manual_start=False):
             # Reset the initialize time and save the current state of
             # the updater dictionary to cache.
             logger.info('Main Timer: Cycle RESET started.\n')
-            """
-            # The following part is to save the data to cache so it can
-            # be resumed in case of an error.
-            logger.info('Main Timer: Saving current updater dictionary state to cache...')
 
-            # Generate a unique index if it doesn't exist to avoid
-            # creating more than one entry per date.
-            CURSOR_DATA.execute("CREATE UNIQUE INDEX IF NOT EXISTS subreddit_index "
-                                "ON cache_statistics (subreddit)")
-            CONN_DATA.commit()
-
-            # Get a list of the currently stored subreddits so we don't
-            # overwrite them, and check the list of subreddits who
-            # already have data saved and do not save their data too.
-            package = (current_date_string,)
-            CURSOR_DATA.execute("SELECT * FROM cache_statistics WHERE date = ?", package)
-            results = CURSOR_DATA.fetchall()
-            already_saved = [x[1] for x in results]
-
-            # Iterate over the subreddits which have unsaved data, and
-            # save their data. Indexed by key.
-            for unsaved in updater_dictionary.keys() - already_saved:
-                # Replace into the cache database. This will change the
-                # information to the most up-to-date version.
-                replace = (current_date_string, unsaved, str(updater_dictionary[unsaved]))
-                c = 'REPLACE INTO cache_statistics (date, subreddit, stored_data) VALUES (?, ? ,?)'
-                CURSOR_DATA.execute(c, replace)
-                CONN_DATA.commit()
-                logger.debug('Main Timer: Cached r/{} statistics '
-                             'for {}.'.format(unsaved, current_date_string))
-            """
             # Make a copy of the updater dictionary and pass it
             # to the wikipage editor. Then clear the updater dictionary.
             # Start the secondary wiki updating thread.
@@ -5533,7 +5506,7 @@ def main_obtain_mentions():
     return
 
 
-def main_parse_operations(id_list, specific_subreddit=None):
+def main_query_operations(id_list, specific_subreddit=None):
     """This function looks at the operations table of the posts passed
     into it as a list, and then returns a Markdown segment with tables
     of the Artemis operations conducted on those posts.
@@ -6367,7 +6340,7 @@ def main_messaging(regular_cycle=True):
                 subreddit_check = None
             else:
                 subreddit_check = str(new_subreddit)
-            operations_info = main_parse_operations(extracted_ids, subreddit_check)
+            operations_info = main_query_operations(extracted_ids, subreddit_check)
             if operations_info:
                 op_reply = operations_info
             else:
