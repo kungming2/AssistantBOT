@@ -45,7 +45,7 @@ from _text import *
 
 """INITIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "1.8.6 Icaco"
+VERSION_NUMBER = "1.8.8 Icaco"
 
 # Define the location of the main files Artemis uses.
 # They should all be in the same folder as the Python script itself.
@@ -3008,7 +3008,11 @@ def wikipage_creator(subreddit_name):
                     "to edit wiki on r/{}.".format(subreddit_name))
 
     # Add bot as wiki contributor.
-    r.wiki.contributor.add(AUTH.username)
+    try:
+        r.wiki.contributor.add(AUTH.username)
+    except prawcore.exceptions.Forbidden:
+        logger.info("Wikipage Creator: Unable to add bot as "
+                    "approved wiki contributor.")
 
     return stats_wikipage
 
@@ -4971,7 +4975,10 @@ def main_timer(manual_start=False):
 
     # Update the operation status widget every ten minutes.
     # This is done before any exits, with a bit of a buffer.
+    # Otherwise, do it every x amount of isochronisms.
     if current_minute % 10 <= 2:
+        widget_operational_status_updater()
+    elif ISOCHRONISMS != 0 and not ISOCHRONISMS % 15:
         widget_operational_status_updater()
 
     # Check to see if the statistics functions have already been run.
@@ -5489,10 +5496,11 @@ def main_obtain_mentions():
             comment = reddit.comment(id=comment_info['id'])  # Convert into PRAW object.
             try:
                 if not comment.saved:  # Don't process saved comments.
-                    full_dictionary[comment.id] = (comment.subreddit.display_name,
-                                                   message_template.format(comment.permalink))
-                    logger.debug('Obtain Mentions: Found new `{}` mention.'.format(comment.id))
-                    comment.save()
+                    if comment.subreddit.display_name.lower() != AUTH.username.lower():
+                        full_dictionary[comment.id] = (comment.subreddit.display_name,
+                                                       message_template.format(comment.permalink))
+                        logger.debug('Obtain Mentions: Found new `{}` mention.'.format(comment.id))
+                        comment.save()
             except praw.exceptions.ClientException:  # Comment is not accessible to me.
                 continue
 
@@ -6474,7 +6482,7 @@ def main_get_posts_frequency():
     # If we need to adjust the broader limit, note that. Also make sure
     # the number to fetch is always at least our minimum.
     if SETTINGS.max_get_posts < NUMBER_TO_FETCH:
-        logger.info('Get Posts Frequency: The broader limit of {} posts'
+        logger.info('Get Posts Frequency: The broader limit of {} posts '
                     'may need to be higher.'.format(SETTINGS.max_get_posts))
     elif NUMBER_TO_FETCH < SETTINGS.min_get_posts:
         NUMBER_TO_FETCH = int(SETTINGS.min_get_posts)
@@ -6892,6 +6900,8 @@ def external_artemis_monthly_statistics(month_string):
             added_subreddits[new_sub] = post.over_18
     for subreddit in added_subreddits:
         if subreddit not in current_subreddits:
+            continue
+        elif reddit.subreddit(subreddit).subreddit_type not in ['public', 'restricted']:
             continue
         else:
             is_nsfw = added_subreddits[subreddit]
