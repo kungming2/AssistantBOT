@@ -44,15 +44,16 @@ classified as modmail "discussions" and be inaccessible to me.
 (https://www.reddit.com/r/AssistantBOT/wiki/advanced)*. |
 | `Revert`    | Revert to the default configuration and clear all advanced settings.              |
 | `Takeout`   | Export r/{0}'s Artemis data as JSON. *[See here for details]\
-(https://www.reddit.com/r/AssistantBOT/wiki/faq#wiki_takeout)* |
+(https://www.reddit.com/r/AssistantBOT/wiki/faq#wiki_takeout)*. |
 | `Query`     | Query Artemis's actions database for individual posts. *[See here for details]\
-(https://www.reddit.com/r/AssistantBOT/wiki/faq#wiki_query)* |
+(https://www.reddit.com/r/AssistantBOT/wiki/faq#wiki_query)*. |
 
 ---
 
 * I update subreddit statistics daily after [midnight UTC](https://time.is/UTC).
 * Please [contact my creator](https://www.reddit.com/message/compose?to=kungming2&subject=\
 About+Artemis+%28From+r%2F{0}%29) u/kungming2 if you have any questions.
+* Feel free to check out r/AssistantBOT for updates, statistics, and more!
 
 Have a good day!
 """
