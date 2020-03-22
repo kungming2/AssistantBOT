@@ -1,8 +1,7 @@
-fuzzywuzzy
+rapidfuzz
 pbwrap
 praw>=6.1.0
 prawcore
 psutil
-python-Levenshtein
 pyyaml>=5.1.0
 requests
