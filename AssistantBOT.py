@@ -36,8 +36,7 @@ import prawcore
 import psutil
 import requests
 import yaml
-from fuzzywuzzy import fuzz
-from fuzzywuzzy import process
+from rapidfuzz import process
 from pbwrap import Pastebin
 from requests.exceptions import ConnectionError
 
@@ -4296,8 +4295,7 @@ def messaging_parse_flair_response(subreddit_name, response_text, post_id):
         # Returns as tuple `('FLAIR' (text), INT)`
         # If the match is higher than or equal to `min_fuzz_ratio`, then
         # assign that to `returned_template`. Otherwise, `None`.
-        best_match = process.extractOne(response_text, list(lowercased_flair_dict.keys()),
-                                        scorer=fuzz.WRatio)
+        best_match = process.extractOne(response_text, list(lowercased_flair_dict.keys()))
         if best_match[1] >= SETTINGS.min_fuzz_ratio:  # We are very sure this is right.
             returned_template = lowercased_flair_dict[best_match[0]]['id']
             flair_match_text = best_match[0]
