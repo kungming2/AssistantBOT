@@ -81,9 +81,12 @@ without any flair and automatically \
 considered abandoned by their submitter and will not be restored.
 
 To disable post removals but continue flair enforcement via reminder messages, simply uncheck \
-my `posts` moderator permission [here](https://www.reddit.com/r/{}/about/moderators). \
+my `posts` moderator permission [here](https://www.reddit.com/r/{0}/about/moderators). \
 Please keep in mind that I do not act on moderators' posts by default, so please use a \
 throwaway account if you are testing my functions out.
+
+**I also recommend turning on the `Require post flair` setting in the subreddit's \
+[post requirements](https://new.reddit.com/r/{0}/about/settings) for best results.**
 '''
 MSG_MOD_INIT_MESSAGING = '''
 📨 Since I also have the `flair` moderator permission, submitters can simply reply to my \
@@ -275,7 +278,7 @@ WIKIPAGE_TEMPLATE = '''
 GOODBYE_PHRASES = ['Adieu', 'Adiós', 'Au revoir', 'Best regards', 'Cheers', 'Ciao', 'Farewell',
                    'Goodbye', 'Hasta la vista', 'Have a fantastic day', 'Have a good one',
                    'Have a great day', 'Have a nice day', 'Keep it real', 'Live long and prosper',
-                   'Mahalo', 'Peace', 'Regards', 'Sayonara', 'So long',
+                   'Mahalo', 'Peace', 'Regards', 'Sayonara', 'So long', 'Stay healthy', 'Stay safe',
                    'Take care', 'Take it easy', 'Toodeloo', 'Tschüss']
 # This is the default Artemis configuration as expressed in YAML.
 # In dictionary form it's rendered as:
