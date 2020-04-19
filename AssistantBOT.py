@@ -44,7 +44,7 @@ from _text import *
 
 """INITIALIZATION INFORMATION"""
 
-VERSION_NUMBER = "1.8.8 Icaco"
+VERSION_NUMBER = "1.8.13 Icaco"
 
 # Define the location of the main files Artemis uses.
 # They should all be in the same folder as the Python script itself.
@@ -2090,8 +2090,8 @@ def subreddit_top_collater(subreddit_name, month_string, last_month_mode=False):
         database_activity_insert(subreddit_name, month_string, 'popular_submission',
                                  dictionary_data)
 
-    # Put it all together as a formatted chunk of text.
-    body = "\n\n##### Most Popular Posts\n\n" + "\n".join(formatted_lines)
+    # Put it all together as a formatted chunk of text.  # NEW
+    body = "\n\n**Most Popular Posts**\n\n" + "\n".join(formatted_lines)
 
     return body
 
@@ -2136,11 +2136,11 @@ def subreddit_pushshift_time_authors_retriever(subreddit_name, start_time, end_t
         # string and will re-access next update.
         if 'aggs' not in retrieved_data:
 
-            # Change the header in the error depending on the type.
+            # Change the header in the error depending on the type.  # NEW
             if search_type == 'submission':
-                error_message = "\n\n##### Top Submitters\n\n"
+                error_message = "\n\n**Top Submitters**\n\n"
             else:
-                error_message = "\n\n##### Top Commenters\n\n"
+                error_message = "\n\n**Top Commenters**\n\n"
 
             error_message += ("* There was an temporary issue retrieving this information. "
                               "Artemis will attempt to re-access the data "
@@ -2194,11 +2194,11 @@ def subreddit_pushshift_time_authors_collater(input_dictionary, search_type):
         bullet_number += 1
 
     # Format everything together and change the header depending on the
-    # type of item we're processing.
+    # type of item we're processing.  # NEW
     if search_type == 'submission':
-        header = "\n\n##### Top Submitters\n\n"
+        header = "\n\n**Top Submitters**\n\n"
     else:
-        header = "\n\n##### Top Commenters\n\n"
+        header = "\n\n**Top Commenters**\n\n"
 
     # If we have entries for this month, format everything together.
     # Otherwise, return a section noting there's nothing.
@@ -2255,9 +2255,9 @@ def subreddit_pushshift_activity_retriever(subreddit_name, start_time, end_time,
                                                                             start_time, end_time))
 
         # If for some reason we encounter an error, we return an error
-        # string for inclusion.
+        # string for inclusion.  # NEW
         if 'aggs' not in retrieved_data:
-            error_message = "\n\n##### {}s Activity\n\n".format(search_type)
+            error_message = "\n\n**{}s Activity**\n\n".format(search_type)
             error_message += ("* There was an temporary issue retrieving this information. "
                               "Artemis will attempt to re-access the data at "
                               "the next statistics update.")
@@ -2323,8 +2323,8 @@ def subreddit_pushshift_activity_collater(input_dictionary, search_type, num_day
             lines_to_post.append(line)
 
     # Format the text body. If there are days recorded join up all the
-    # data. Otherwise, return the `unavailable` message.
-    header = "\n\n##### {}s Activity\n\n**Most Active Days**\n\n".format(search_type.title())
+    # data. Otherwise, return the `unavailable` message.  # NEW
+    header = "\n\n**{}s Activity**\n\n*Most Active Days:*\n\n".format(search_type.title())
     if len(lines_to_post) > 0:  #
         body = header + '\n'.join(lines_to_post) + average_line
     else:
@@ -2498,6 +2498,7 @@ def subreddit_statistics_collater(subreddit, start_date, end_date):
     """
     main_dictionary = {}
     final_dictionary = {}
+    format_dictionary = {}
     table_lines = []
     total_amount = 0
     total_days = []  # The days of data that we are evaluating.
@@ -2536,23 +2537,33 @@ def subreddit_statistics_collater(subreddit, start_date, end_date):
     for count in final_dictionary.values():
         total_amount += sum(count)
 
-    # Format the lines of the table. Each line represents a flair
-    # and how many posts were flaired as it.
+    # Go through the dictionary and combine equivalent flairs. # NEW
     for key, value in sorted(final_dictionary.items()):
-        posts_num = sum(value)  # Number of posts matching this flair.
-        # Calculate the percent that have this flair.
-        percentage = posts_num / total_amount
-
         # We italicize this entry since it represents unflaired posts.
         # Note that it was previously marked with the string "None",
         # rather than the value `None`.
         if key == "None":
             key_formatted = "*None*"
+        elif "//" in key:  
+            # Splitting the Layer7 dev reply keys off. See the docs:
+            # https://bitbucket.org/layer7solutions/bungie-replied/
+            key_formatted = messaging_flair_sanitizer(key.split('//')[0].strip(), False)
         else:
             key_formatted = messaging_flair_sanitizer(key, False)
 
+        if key_formatted in format_dictionary:
+            format_dictionary[key_formatted] += sum(value)
+        else:
+            format_dictionary[key_formatted] = sum(value)
+
+    # Combine the flairs and form them into a table. One line per 
+    # post flair entry.
+    for key, value in sorted(format_dictionary.items()):
+        # Calculate the percent that have this flair.
+        percentage = value / total_amount
+        
         # Format the table's line.
-        entry_line = '| {} | {:,} | {:.2%} |'.format(key_formatted, sum(value), percentage)
+        entry_line = '| {} | {:,} | {:.2%} |'.format(key, value, percentage)
         table_lines.append(entry_line)
 
     # Add the total line that tabulates how many posts were posted in
@@ -2612,7 +2623,7 @@ def subreddit_statistics_retriever(subreddit_name):
     # If there are results from the first day, we add the current month
     # as well. This is to allow for results from the first day to appear
     # in the update on the second day. Otherwise, because the first day
-    # begins at midnight the latest month will not be included
+    # begins at midnight the latest month will not be included.
     if newest_date.endswith('-01') and newest_date[:-3] not in list_of_months:
         list_of_months.append(newest_date[:-3])
 
@@ -3158,6 +3169,10 @@ def wikipage_config(subreddit_name):
         # mandatory on AutoModerator configuration pages.
         error = ("There was an error with the page's YAML syntax. "
                  "Please make sure there are no `---` lines.")
+        return False, error
+    except yaml.scanner.ScannerError:  # NEW
+        error = ("There was an error with the page's YAML syntax. "
+                 "Please check the validity of the code with yamllint.com.")
         return False, error
     logger.info('Wikipage Config: Configuration data for '
                 'r/{} is {}.'.format(subreddit_name, subreddit_config_data))
@@ -6537,7 +6552,7 @@ def main_get_submissions(statistics_mode=False):
     # first. The newest posts will be processed last.
     # The communities are fetched in sections in order to keep the
     # coverage good. If the bot is started for the first time, a full
-    # 1000 posts are fetched initially.
+    # 1000 posts are fetched initially. # NEW
     posts = []
     sections = main_get_posts_sections()
     for section in sections:
@@ -7052,6 +7067,7 @@ def external_mail_alert():
 
 '''RUNNING THE BOT'''
 main_login()
+
 
 """
 The below are two modes for Artemis to run tests directly from the
