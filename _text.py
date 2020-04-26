@@ -278,8 +278,8 @@ WIKIPAGE_TEMPLATE = '''
 GOODBYE_PHRASES = ['Adieu', 'Adiós', 'Au revoir', 'Best regards', 'Cheers', 'Ciao', 'Farewell',
                    'Goodbye', 'Hasta la vista', 'Have a fantastic day', 'Have a good one',
                    'Have a great day', 'Have a nice day', 'Keep it real', 'Live long and prosper',
-                   'Mahalo', 'Peace', 'Regards', 'Sayonara', 'So long', 'Stay healthy', 'Stay safe',
-                   'Take care', 'Take it easy', 'Toodeloo', 'Tschüss']
+                   'Mahalo', 'Peace', 'Regards', 'Sayonara', 'So long', 'Stay healthy',
+                   'Stay safe', 'Take care', 'Take it easy', 'Toodeloo', 'Tschüss']
 # This is the default Artemis configuration as expressed in YAML.
 # In dictionary form it's rendered as:
 # {'flair_enforce_approve_posts': True,
