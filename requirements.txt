@@ -1,7 +1,7 @@
-rapidfuzz
 pbwrap
 praw>=6.1.0
 prawcore
 psutil
 pyyaml>=5.1.0
+rapidfuzz
 requests
