@@ -1080,6 +1080,7 @@ def subreddit_traffic_retriever(subreddit_name):
     :param subreddit_name: The name of a Reddit subreddit.
     :return: A Markdown table with all the months we have data for.
     """
+    correlated_data = {}
     formatted_lines = []
     all_uniques = []
     all_pageviews = []
@@ -1087,7 +1088,7 @@ def subreddit_traffic_retriever(subreddit_name):
     all_pageviews_changes = []
     top_month_uniques = None
     top_month_pageviews = None
-    basic_line = "| {} | {} | {:,} | *{}%* | {} | {:,} | *{}%* | {} |"
+    basic_line = "| {} | {} | {:,} | *{}%* | {} | {:,} | *{}%* | {} | {} | {}"
 
     # Look for the traffic data in our database.
     subreddit_name = subreddit_name.lower()
@@ -1100,6 +1101,27 @@ def subreddit_traffic_retriever(subreddit_name):
         traffic_dictionary = literal_eval(results[1])
     else:
         return None
+
+    # Fetch some submission / comment data from Pushshift's database
+    # for integration into the overall traffic table.
+    for search_type in ['submission', 'comment']:
+        correlated_data[search_type] = {}
+        earliest_month = list(traffic_dictionary.keys())[0] + "-01"
+        stat_query = ("https://api.pushshift.io/reddit/search/{}/?subreddit={}&after={}"
+                      "&aggs=created_utc&frequency=month&size=0".format(search_type,
+                                                                        subreddit_name,
+                                                                        earliest_month))
+        retrieved_data = subreddit_pushshift_access(stat_query)
+        returned_months = retrieved_data['aggs']['created_utc']
+
+        for entry in returned_months:
+            month = date_month_convert_to_string(entry['key'])
+            count = entry['doc_count']
+            if not count:
+                formatted_count = "N/A"
+            else:
+                formatted_count = "{:,}".format(count)
+            correlated_data[search_type][month] = formatted_count
 
     # Iterate over our dictionary.
     for key in sorted(traffic_dictionary, reverse=True):
@@ -1168,7 +1190,9 @@ def subreddit_traffic_retriever(subreddit_name):
         # Format the table line and add it to the list.
         line = basic_line.format(key, uniques_symbol, current_uniques, uniques_change,
                                  pageviews_symbol, current_pageviews, pageviews_change,
-                                 ratio_uniques_pageviews)
+                                 ratio_uniques_pageviews,
+                                 correlated_data['submission'].get(key, "N/A"),
+                                 correlated_data['comment'].get(key, "N/A"))
         formatted_lines.append(line)
 
     # Here we look for the top months we have in the recorded data.
@@ -1209,13 +1233,22 @@ def subreddit_traffic_retriever(subreddit_name):
             est_pageviews_change = round((pageviews_diff / previous_pageviews) * 100, 2)
             ratio_raw = round(estimated_pageviews / estimated_uniques, 0)
             ratio_est_uniques_pageviews = "≈1:{}".format(int(ratio_raw))
+            x_ratio = 1 + (est_pageviews_change * .01)
+
+            # Interpolate estimated number of posts and comments based
+            # on the Pushshift data and the ratio we have for pageviews.
+            now_posts = int(correlated_data['submission'].get(current_month, "0").replace(',', ''))
+            est_posts = "{:,.0f}".format(now_posts * x_ratio)
+            now_comments = int(correlated_data['comment'].get(current_month, "0").replace(',', ''))
+            est_comments = "{:,.0f}".format(now_comments * x_ratio)
         except (KeyError, ZeroDivisionError):
             est_uniques_change = est_pageviews_change = ratio_est_uniques_pageviews = "---"
+            est_posts = est_comments = "N/A"
 
         estimated_line = basic_line.format("*{} (estimated)*".format(current_month), "",
                                            estimated_uniques, est_uniques_change, "",
                                            estimated_pageviews, est_pageviews_change,
-                                           ratio_est_uniques_pageviews)
+                                           ratio_est_uniques_pageviews, est_posts, est_comments)
 
         # Insert at the start of the formatted lines list, position 0.
         formatted_lines.insert(0, estimated_line)
@@ -1267,9 +1300,10 @@ def subreddit_traffic_retriever(subreddit_name):
 
     # Form the overall Markdown table with the header and body text.
     header = ("\n| Month | 📈 | Uniques | Uniques % Change | 📉 | "
-              "Pageviews | Pageviews % Change | Uniques : Pageviews |"
+              "Pageviews | Pageviews % Change | Uniques : Pageviews | "
+              "Total Posts | Total Comments |"
               "\n|-------|----|---------|------------------|----|------|"
-              "--------------------|---------------------|\n")
+              "--------------------|---------------------|-----|-----|\n")
     body = average_section + top_section + header + '\n'.join(formatted_lines)
 
     return body
@@ -2090,7 +2124,7 @@ def subreddit_top_collater(subreddit_name, month_string, last_month_mode=False):
         database_activity_insert(subreddit_name, month_string, 'popular_submission',
                                  dictionary_data)
 
-    # Put it all together as a formatted chunk of text.  # NEW
+    # Put it all together as a formatted chunk of text.
     body = "\n\n**Most Popular Posts**\n\n" + "\n".join(formatted_lines)
 
     return body
@@ -2136,7 +2170,7 @@ def subreddit_pushshift_time_authors_retriever(subreddit_name, start_time, end_t
         # string and will re-access next update.
         if 'aggs' not in retrieved_data:
 
-            # Change the header in the error depending on the type.  # NEW
+            # Change the header in the error depending on the type.
             if search_type == 'submission':
                 error_message = "\n\n**Top Submitters**\n\n"
             else:
@@ -2194,7 +2228,7 @@ def subreddit_pushshift_time_authors_collater(input_dictionary, search_type):
         bullet_number += 1
 
     # Format everything together and change the header depending on the
-    # type of item we're processing.  # NEW
+    # type of item we're processing.
     if search_type == 'submission':
         header = "\n\n**Top Submitters**\n\n"
     else:
@@ -2255,7 +2289,7 @@ def subreddit_pushshift_activity_retriever(subreddit_name, start_time, end_time,
                                                                             start_time, end_time))
 
         # If for some reason we encounter an error, we return an error
-        # string for inclusion.  # NEW
+        # string for inclusion.
         if 'aggs' not in retrieved_data:
             error_message = "\n\n**{}s Activity**\n\n".format(search_type)
             error_message += ("* There was an temporary issue retrieving this information. "
@@ -2323,7 +2357,7 @@ def subreddit_pushshift_activity_collater(input_dictionary, search_type, num_day
             lines_to_post.append(line)
 
     # Format the text body. If there are days recorded join up all the
-    # data. Otherwise, return the `unavailable` message.  # NEW
+    # data. Otherwise, return the `unavailable` message.
     header = "\n\n**{}s Activity**\n\n*Most Active Days:*\n\n".format(search_type.title())
     if len(lines_to_post) > 0:  #
         body = header + '\n'.join(lines_to_post) + average_line
@@ -2537,7 +2571,7 @@ def subreddit_statistics_collater(subreddit, start_date, end_date):
     for count in final_dictionary.values():
         total_amount += sum(count)
 
-    # Go through the dictionary and combine equivalent flairs. # NEW
+    # Go through the dictionary and combine equivalent flairs.
     for key, value in sorted(final_dictionary.items()):
         # We italicize this entry since it represents unflaired posts.
         # Note that it was previously marked with the string "None",
@@ -3170,7 +3204,7 @@ def wikipage_config(subreddit_name):
         error = ("There was an error with the page's YAML syntax. "
                  "Please make sure there are no `---` lines.")
         return False, error
-    except yaml.scanner.ScannerError:  # NEW
+    except yaml.scanner.ScannerError:
         error = ("There was an error with the page's YAML syntax. "
                  "Please check the validity of the code with yamllint.com.")
         return False, error
@@ -6552,7 +6586,7 @@ def main_get_submissions(statistics_mode=False):
     # first. The newest posts will be processed last.
     # The communities are fetched in sections in order to keep the
     # coverage good. If the bot is started for the first time, a full
-    # 1000 posts are fetched initially. # NEW
+    # 1000 posts are fetched initially.
     posts = []
     sections = main_get_posts_sections()
     for section in sections:
