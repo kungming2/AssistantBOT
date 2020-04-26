@@ -2578,7 +2578,7 @@ def subreddit_statistics_collater(subreddit, start_date, end_date):
         # rather than the value `None`.
         if key == "None":
             key_formatted = "*None*"
-        elif "//" in key:  
+        elif "//" in key:
             # Splitting the Layer7 dev reply keys off. See the docs:
             # https://bitbucket.org/layer7solutions/bungie-replied/
             key_formatted = messaging_flair_sanitizer(key.split('//')[0].strip(), False)
@@ -2590,12 +2590,12 @@ def subreddit_statistics_collater(subreddit, start_date, end_date):
         else:
             format_dictionary[key_formatted] = sum(value)
 
-    # Combine the flairs and form them into a table. One line per 
+    # Combine the flairs and form them into a table. One line per
     # post flair entry.
     for key, value in sorted(format_dictionary.items()):
         # Calculate the percent that have this flair.
         percentage = value / total_amount
-        
+
         # Format the table's line.
         entry_line = '| {} | {:,} | {:.2%} |'.format(key, value, percentage)
         table_lines.append(entry_line)
