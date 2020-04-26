@@ -3,7 +3,7 @@
 * Looking for an easy-to-use bot to help make sure your community's submitters remember to choose a post flair? 
 * Want more detailed and extensive statistics on the health and growth of your community? 
 
-**Artemis (u/AssistantBOT)** is an easy-to-use and helpful Reddit bot written by a moderator *for* moderators to assist them with organizing and gaining insights into their own communities. (Now used on 550+ subreddits with over 30 million subscribers  and 2700+ moderators combined!)
+**Artemis (u/AssistantBOT)** is an easy-to-use and helpful Reddit bot written by a moderator *for* moderators to assist them with organizing and gaining insights into their own communities. (Now used on 800+ subreddits with over 50 million subscribers and 3000+ moderators combined!)
 
 ## Functions (TL;DR)
 
@@ -26,7 +26,7 @@ Awesome! It's super easy to add u/AssistantBOT as a moderator to your subreddit:
 2. Invite u/AssistantBOT from your subreddit's moderators page at `https://www.reddit.com/r/SUBREDDIT/about/moderators` with the most suitable moderator permissions.
 3. The bot will accept your invite and reply with a confirmation message. 
 
-Note: Artemis will enforce post flairs for subreddits of any size, but will pause statistics-gathering if a subreddit is below 25 subscribers and resume statistics-gathering when it has reached that threshold.
+Note: Artemis will enforce post flairs for subreddits of any size, but will pause statistics-gathering if a subreddit is below 500 subscribers and resume statistics-gathering when it has reached that threshold.
 
 ### Flair Enforcing Modes
 
