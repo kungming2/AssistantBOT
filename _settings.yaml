@@ -47,7 +47,7 @@ min_monitor_sec: 300
 max_monitor_sec: 86400
 # A subreddit has to have at least this many subscribers for statistics,
 # and a minimum default amount for userflair statistics.
-min_s_stats: 25
+min_s_stats: 500
 min_s_userflair: 50000
 # The number of data entries to store, and how many posts to pull.
 entries_to_keep: 12000
