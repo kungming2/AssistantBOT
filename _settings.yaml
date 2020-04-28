@@ -19,7 +19,10 @@ day_traffic: 4
 # The hour daily functions will run at (midnight UTC in this case).
 action_time: 0
 # The amount of hours to allow for the statistics routine to run.
-action_window: 9
+action_window: 11
+# Boolean governing whether or not the statistics routine writes locally
+# (for testing purposes) or to subreddit wiki pages.
+stats_local: False
 # Subscriber estimator sample size, how many past days to calculate
 # the future growth of a subreddit's subscribers.
 subscriber_sample_size: 14
@@ -47,7 +50,7 @@ min_monitor_sec: 300
 max_monitor_sec: 86400
 # A subreddit has to have at least this many subscribers for statistics,
 # and a minimum default amount for userflair statistics.
-min_s_stats: 500
+min_s_stats: 25
 min_s_userflair: 50000
 # The number of data entries to store, and how many posts to pull.
 entries_to_keep: 12000
@@ -57,7 +60,7 @@ lines_to_keep_divider: 2
 updated_to_keep_divider: 5
 operations_to_keep_multiplier: 5
 # Number of posts to get when pulling submissions.
-max_get_posts: 500
+max_get_posts: 600
 min_get_posts: 175
 # Number of old posts as a limit with pulling posts for recording at
 # the end of a day.
