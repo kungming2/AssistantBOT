@@ -1,16 +1,23 @@
 # -----
 # These are the credentials necessary for Artemis to access Reddit.
 # -----
+version_number: 2.0 Juniper
 username: AssistantBOT
 password:
 app_id:
 app_secret:
+creator: kungming2
 backup_folder:
 backup_folder_2:
+# -----
+# These are the credentials for companion scripts.
+# -----
 helper_username: ArtemisHelper
 helper_password:
 helper_app_id:
 helper_app_secret:
-creator: kungming2
+# -----
+# These are the credentials for supplementary services.
+# -----
 pastebin_api_key:
 pastebin_password:
