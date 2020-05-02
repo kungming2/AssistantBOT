@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: UTF-8 -*-
+"""The settings component simply loads information from the relevant
+YAML files, and transforms them into usable objects.
+"""
 import os
 from types import SimpleNamespace
 
