@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: UTF-8 -*-
+"""The connection component contains basic functions for login and
+connection to Reddit.
+"""
 import sys
 from types import SimpleNamespace
 
@@ -118,13 +121,15 @@ def get_posts_frequency():
 
 
 # noinspection PyGlobalUndefined,PyGlobalUndefined
-def login():
+def login(posts_frequency=True):
     """A simple function to log in and authenticate to Reddit. This
     declares a global `reddit` object for all other functions to work
     with. It also authenticates under a secondary regular account as a
     work-around to get only user-accessible flairs from the subreddits
     it moderates and from which to post if shadowbanned.
 
+    :param posts_frequency: A Boolean denoting whether we should
+                            check for the post frequency.
     :return: `None`, but global `reddit` and `reddit_helper` variables
              are declared.
     """
@@ -150,7 +155,8 @@ def login():
 
     # Access configuration data.
     config_retriever()
-    get_posts_frequency()
+    if posts_frequency:
+        get_posts_frequency()
 
     return
 
