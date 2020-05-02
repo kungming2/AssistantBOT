@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: UTF-8 -*-
+"""The timekeeping component primarily deals with time conversion and
+formatting.
+"""
 import datetime
 
 from settings import SETTINGS
