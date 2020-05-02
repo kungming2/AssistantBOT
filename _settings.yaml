@@ -16,8 +16,11 @@ conn_errors:
 # And the day of the month for monthly traffic functions to run.
 day_action: 1
 day_traffic: 4
-# The hour daily functions will run at (midnight UTC in this case).
+# The hour daily statistics functions will run at in 24-hour time,
+# (midnight UTC in this case).
 action_time: 0
+# The offset in hours for the userflair routine to run.
+userflair_time_offset: 20
 # The amount of hours to allow for the statistics routine to run.
 action_window: 11
 # Boolean governing whether or not the statistics routine writes locally
@@ -60,7 +63,7 @@ lines_to_keep_divider: 2
 updated_to_keep_divider: 5
 operations_to_keep_multiplier: 5
 # Number of posts to get when pulling submissions.
-max_get_posts: 600
+max_get_posts: 700
 min_get_posts: 175
 # Number of old posts as a limit with pulling posts for recording at
 # the end of a day.
@@ -77,6 +80,17 @@ advanced_limit_msg: 500
 advanced_limit_name: 20
 # Minimum fuzz ratio for a message to be flaired.
 min_fuzz_ratio: 90
+# The time of the hour the monitor will check the widgets and log.
+monitor_time_check: 15
+# This is the number of minutes for minimum age of last log entry for
+# the monitor routine.
+monitor_time_interval: 60
+# These are widget IDs on r/AssistantBOT for the various routines to
+# check and update.
+widget_operational_status: widget_142uuvol5mzqi
+widget_statistics_update: widget_13xm3fwr0w9mu
+widget_statistics_actions: widget_14159zz24snay
+widget_statistics_public_table: widget_13xztx496z34h
 # These are major subscriber milestones that a subreddit reaches.
 milestones:
     - 10
