@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: UTF-8 -*-
+"""The external component contains testing routines, targeted checks, as
+well as a monitor routine that is meant to be run separately to audit
+the uptime of the bot.
+"""
+import datetime
+import praw
+import prawcore
 import sqlite3
 import sys
 import time
@@ -8,18 +15,184 @@ from calendar import monthrange
 from collections import Counter
 from random import sample
 
+import yaml
+
 import artemis_stats
 import connection
 import database
 import timekeeping
 from common import logger
-from settings import AUTH, FILE_ADDRESS
+from settings import AUTH, FILE_ADDRESS, SETTINGS
 
 """LOGGING IN"""
 
-connection.login()
+USER_AGENT = "Artemis Monitor, a service routine for this account."
+connection.login(False)
 reddit = connection.reddit
 reddit_helper = connection.reddit_helper
+reddit_monitor = praw.Reddit(client_id=AUTH.monitor_app_id,
+                             client_secret=AUTH.monitor_app_secret,
+                             password=AUTH.monitor_password,
+                             user_agent=USER_AGENT,
+                             username=AUTH.monitor_username)
+
+"""MONITOR FUNCTIONS"""
+
+
+def monitor_seconds_till_next_hour():
+    """Function to determine seconds until the next hour to act.
+    The monitor uses this time to wait for that period, thus
+    running itself at the same time each hour.
+
+    :return: Returns the number of seconds remaining until the next
+             action time as an integer.
+    """
+    # Returns the current Unix timestamp.
+    current_waktu = int(time.time())
+    w = time.strftime('%Y:%m:%d:%H')
+
+    # Choose the next time to run.
+    next_time = int(time.mktime(datetime.datetime.strptime(w, "%Y:%m:%d:%H").timetuple())) + 3600
+    seconds_remaining = (SETTINGS.monitor_time_check * 60) + next_time - current_waktu
+
+    return seconds_remaining
+
+
+def monitor_wiki_access(date=None):
+    """This function used by the monitor accesses a page on the wiki,
+    where dates on which an outage was detected are stored. This is to
+    prevent multiple messages on the same day for an outage. The
+    function adds an date of an action if passed that value, otherwise
+    it does nothing and just gets back already saved dates as a list.
+
+    :param date: The date on which an outage was detected. Passed as a
+                 string in YYYY-MM-DD format.
+    :return: A Python list of all dates on which outages were detected.
+    """
+    wiki_page = reddit_monitor.subreddit('translatorBOT').wiki['artemis_monitor']
+    processed_data = wiki_page.content_md
+
+    # Convert YAML processed text into a Python list.
+    processed_dates = yaml.safe_load(processed_data)
+
+    # If it's not none, we wanna add a date to the list.
+    if date is not None and date not in processed_dates:
+        processed_dates.append(date)
+        wiki_page.edit(content=str(processed_dates),
+                       reason='Updating with new date `{}`.'.format(date))
+        logger.info('Monitor Wiki Access: Updated monitor log with date {}.'.format(date))
+
+    return processed_dates
+
+
+def monitor_last_log_checker():
+    """This is a function of "last resort" - the monitor accesses the
+    mod log using the main account and checks to see when the last mod
+    action was performed. This is in case the widgets aren't being
+    updated regularly, so the monitor checks to make sure the bot is
+    actually doing things.
+
+    :return: `None`.
+    """
+    item_elapsed = None
+    log_entry = None
+
+    for log in reddit.subreddit('mod').mod.log(limit=1, mod=AUTH.username[:12]):
+        item_elapsed = round(time.time() - log.created_utc, 2)
+        log_entry = ("Last main action: `{}` performed on r/{} "
+                     "{:,.2f} seconds ago.".format(log.action, log.subreddit, item_elapsed))
+
+    return item_elapsed, log_entry
+
+
+def monitor_main():
+    """This is the main monitor function. Hosted separately, it
+    primarily checks r/AssistantBOT's modlog to see if there are any
+    recent items in the mod log by the main routine. Since the main
+    routine regularly updates a status widget, it's a way of verifying
+    that the bot is still active and running. If it has been longer than
+    `monitor_time_interval` without any log items, the bot will check
+    the account itself to see if it has conducted any actions, and if it
+    hasn't the monitor will send creator a message.
+
+    :return: `None`.
+    """
+    current_time = int(time.time())
+    current_utc = timekeeping.time_convert_to_string(current_time)
+    current_date = datetime.datetime.utcfromtimestamp(current_time).strftime("%Y-%m-%d")
+
+    # Fetch the dates on which notifications have already been sent
+    # about down times.
+    done_dates = monitor_wiki_access()
+
+    # Access the bot subreddit and check for the most recent mod log.
+    most_recent_item_time = None
+    for item in reddit.subreddit(AUTH.username[:12]).mod.log(limit=1,
+                                                             mod=AUTH.username[:12]):
+        most_recent_item_time = int(item.created_utc)
+
+    # If the log is inaccessible, return.
+    if most_recent_item_time is None:
+        logger.info("Monitor: Unable to retrieve anything from the moderation log.")
+        return
+    else:
+        time_diff_mins = round((current_time - most_recent_item_time) / 60, 2)
+        logger.info("Monitor: Time difference since "
+                    "last log entry: {} minutes".format(time_diff_mins))
+
+    if time_diff_mins > SETTINGS.monitor_time_interval:
+        logger.info("Monitor: Time interval exceeded. It's been over {} minutes since the last "
+                    "r/{} update.".format(time_diff_mins, AUTH.username[:12]))
+        logger.info("Monitor: The current time interval to check is "
+                    "{} minutes.".format(SETTINGS.monitor_time_interval))
+
+        # Get the operational status widget.
+        operational_widget = None
+        for widget in reddit.subreddit(AUTH.username[:12]).widgets.sidebar:
+            if isinstance(widget, praw.models.TextArea):
+                if widget.id == SETTINGS.widget_operational_status:
+                    operational_widget = widget
+                    break
+
+        # Check to see if this particular date was already accounted
+        # for in the wiki and recorded.
+        if current_date not in done_dates:
+            # We conduct a final check by also consulting the main
+            # mod log to see when the last action was. `last_elapsed`
+            # is the number of seconds since the last action.
+            last_elapsed, last_main_log_msg = monitor_last_log_checker()
+
+            # Message my creator if the date is not recorded.
+            msg = ("Last [log entry](https://www.reddit.com/r/AssistantBOT/about/log)"
+                   " in r/AssistantBOT was recorded {} minutes ago on {}. Current "
+                   "minimum interval is {} minutes.".format(time_diff_mins, current_date,
+                                                            SETTINGS.monitor_time_interval))
+
+            # If the last actual mod action is longer than our interval
+            # message my creator.
+            if last_elapsed >= SETTINGS.monitor_time_interval * 60:
+                main_log_chunk = ("\n\nThe last main log item was recorded {:,.2f} minutes ago."
+                                  "\n\n{}".format(last_elapsed / 60, last_main_log_msg))
+                reddit.redditor(AUTH.creator).message('Artemis may be down.', msg + main_log_chunk)
+                logger.info("Monitor: Messaged creator about possible downtime.")
+
+                # Add the current date to the wiki.
+                monitor_wiki_access(current_date)
+            else:
+                # The mod log indicates that the bot is not actually
+                # down, so exit early.
+                return
+
+        if operational_widget is not None:
+            operational_status = '# ❎ {}'.format(current_utc)
+            operational_widget.mod.update(text=operational_status,
+                                          styles={'backgroundColor': '#ed1c24',
+                                                  'headerColor': '#222222'})
+            logger.info("Monitor: Updated operational status widget with "
+                        "down notice at {} UTC.".format(current_utc))
+
+    return
+
 
 """TESTING / EXTERNAL FUNCTIONS"""
 
@@ -151,9 +324,16 @@ def external_artemis_monthly_statistics(month_string):
             new_sub = post.title.split('r/')[1]
             added_subreddits[new_sub] = post.over_18
     for subreddit in added_subreddits:
+        # Make an exception for banned subreddits, particularly.
+        try:
+            subreddit_object = reddit.subreddit(subreddit)
+            subreddit_type = subreddit_object.subreddit_type
+        except prawcore.exceptions.NotFound:
+            continue
+
         if subreddit not in current_subreddits:
             continue
-        elif reddit.subreddit(subreddit).subreddit_type not in ['public', 'restricted']:
+        elif subreddit_type not in ['public', 'restricted']:
             continue
         else:
             is_nsfw = added_subreddits[subreddit]
@@ -176,6 +356,7 @@ def external_artemis_monthly_statistics(month_string):
     # Combine the actions together.
     all_days = list(set(list(actions_s.keys()) + list(actions_m.keys())))
     all_days.sort()
+    print(all_days)
     for day in all_days:
         actions[day] = dict(Counter(actions_s[day]) + Counter(actions_m[day]))
 
@@ -328,37 +509,11 @@ def external_database_splitter():
     cursor_donor.execute('SELECT * FROM subreddit_actions WHERE subreddit = ?', ('all',))
     all_actions = literal_eval(cursor_donor.fetchone()[1])
 
-    # Create the main database tables if they do not already exist.
+    # Create the database tables if they do not already exist.
+    database.table_creator()
     main_tables = ['monitored', 'posts_filtered', 'posts_operations', 'posts_processed']
-    database.CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS monitored (subreddit text, "
-                                 "flair_enforce integer, extended text);")
-    database.CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS posts_filtered (post_id text, "
-                                 "post_created integer);")
-    database.CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS posts_operations (id text, "
-                                 "operations text);")
-    database.CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS posts_processed (post_id text);")
-    database.CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS subreddit_actions (subreddit text,"
-                                 "recorded_actions text);")
-    database.CONN_MAIN.commit()
-    print("Main tables created, if they don't exist already.")
-
-    # Create the statistics database tables if they do not already
-    # exist.
     stats_tables = ['subreddit_activity', 'subreddit_stats_posts', 'subreddit_subscribers_new',
                     'subreddit_traffic', 'subreddit_updated']
-    database.CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_actions (subreddit text, "
-                                  "recorded_actions text);")
-    database.CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_activity (subreddit text, "
-                                  "date text, activity text);")
-    database.CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_stats_posts "
-                                  "(subreddit text, records text);")
-    database.CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_subscribers_new "
-                                  "(subreddit text, records text);")
-    database.CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_traffic "
-                                  "(subreddit text, traffic text);")
-    database.CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_updated "
-                                  "(subreddit text, date text);")
-    print("Statistics tables created, if they don't exist already.")
 
     # Start the copying for both databases. Subreddit actions is dealt
     # with later.
@@ -421,7 +576,7 @@ def external_database_splitter():
     # `subreddit_actions` table that can be conjoined later.
     all_main_actions = {}
     all_stats_actions = {}
-    for date in sorted(all_actions)[:100]:
+    for date in sorted(all_actions):
         date_stats = dict((k, all_actions[date][k]) for k in actions_stats
                           if k in all_actions[date])
         all_stats_actions[date] = date_stats
@@ -476,6 +631,23 @@ if len(sys.argv) > 1:
         external_mail_alert()
     elif specific_mode == 'split':
         external_database_splitter()
-    elif specific_mode == 'stats':
+    elif specific_mode == 'stats' or specific_mode == 'statistics':
         month_stats = input("\n====\n\nEnter the month in YYYY-MM format or 'x' to exit: ").strip()
         print(external_artemis_monthly_statistics(month_stats))
+    elif specific_mode == 'monitor':
+        try:
+            # Run the monitoring code.
+            while True:
+                # noinspection PyBroadException
+                try:
+                    monitor_main()
+                except Exception as e:
+                    print(Exception)
+
+                sleep_time = monitor_seconds_till_next_hour()
+                time_left = divmod(sleep_time, 60)
+                print('> Running again in {}:{}. \n'.format(time_left[0], time_left[1]))
+                time.sleep(sleep_time)
+        except KeyboardInterrupt:
+            logger.info('Manual user shutdown via keyboard.')
+            sys.exit()
