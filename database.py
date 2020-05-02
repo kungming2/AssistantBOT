@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: UTF-8 -*-
+"""The database component contains functions to manage reading and
+writing to the two SQLite databases.
+"""
 import sqlite3
 import time
 from ast import literal_eval
@@ -11,19 +14,94 @@ from settings import FILE_ADDRESS, SETTINGS
 from timekeeping import convert_to_string
 
 
-"""DATABASE DEFINITION"""
+"""DATABASE DEFINITIONS"""
 
 
 # This connects Artemis with its main SQLite database file.
 CONN_STATS = sqlite3.connect(FILE_ADDRESS.data_stats)
+# CONN_STATS.execute("PRAGMA journal_mode=WAL;")
 CURSOR_STATS = CONN_STATS.cursor()
 
 # This connects Artemis with its flair enforcement SQLite database file.
 CONN_MAIN = sqlite3.connect(FILE_ADDRESS.data_main)
+# CONN_MAIN.execute("PRAGMA journal_mode=WAL;")
 CURSOR_MAIN = CONN_MAIN.cursor()
 
 
+"""DATABASE CREATION"""
+
+
+def table_creator():
+    """This function creates the tables in the databases if they do not
+    already exist.
+    """
+    # Parse the main database.
+    CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS monitored (subreddit text, "
+                        "flair_enforce integer, extended text);")
+    CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS posts_filtered (post_id text, "
+                        "post_created integer);")
+    CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS posts_operations (id text, operations text);")
+    CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS posts_processed (post_id text);")
+    CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS subreddit_actions (subreddit text, "
+                        "recorded_actions text);")
+    CONN_MAIN.commit()
+
+    # Parse the statistics database.
+    CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_actions (subreddit text, "
+                         "recorded_actions text);")
+    CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_activity (subreddit text, "
+                         "date text, activity text);")
+    CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_stats_posts "
+                         "(subreddit text, records text);")
+    CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_subscribers_new "
+                         "(subreddit text, records text);")
+    CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_traffic "
+                         "(subreddit text, traffic text);")
+    CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_updated "
+                         "(subreddit text, date text);")
+    return
+
+
 """DATABASE FUNCTIONS"""
+
+
+def database_access(command, data, retries=3, fetch_many=False):
+    """This is a wrapper function that is used by functions that may be
+    called by the statistics runtime on the MAIN database. A built-in
+    function will wait if it encounters any lock.
+
+    :param command: The SQLite command to be run on the main database.
+    :param data: The data package for the search query. `None` if none
+                 is needed.
+    :param retries:
+    :param fetch_many:
+    :return:
+    """
+
+    for _ in range(retries):
+        try:
+            # If there's data to search for, include it. Otherwise, just
+            # conduct a straight command.
+            if data:
+                CURSOR_MAIN.execute(command, data)
+            else:
+                CURSOR_MAIN.execute(command)
+
+            # Choose whether or not to fetch many results or just one.
+            if not fetch_many:
+                result = CURSOR_MAIN.fetchone()
+            else:
+                result = CURSOR_MAIN.fetchall()
+
+            # Ext early with the result if we have it.
+            if result is not None:
+                return result
+        except sqlite3.OperationalError:
+            # Back off if there's a temporary lock on the database.
+            time.sleep(_ + 1)
+            continue
+
+    return
 
 
 def subreddit_insert(community_name, supplement):
@@ -76,6 +154,7 @@ def subreddit_delete(community_name):
 def monitored_subreddits_retrieve(flair_enforce_only=False):
     """This function returns a list of all the subreddits that
     Artemis monitors WITHOUT the 'r/' prefix.
+    This function is used by both routines.
 
     :param flair_enforce_only: A Boolean that if `True`, only returns
                                the subreddits that have flair enforcing
@@ -83,13 +162,12 @@ def monitored_subreddits_retrieve(flair_enforce_only=False):
     :return: A list of all monitored subreddits, in the order which
              they were first stored, oldest to newest.
     """
-    if not flair_enforce_only:
-        CURSOR_MAIN.execute("SELECT * FROM monitored")
-    else:
-        CURSOR_MAIN.execute("SELECT * FROM monitored WHERE flair_enforce is 1")
-    results = CURSOR_MAIN.fetchall()
 
-    # Gather the saved subreddits' names and add them into a list.
+    if not flair_enforce_only:
+        query = "SELECT * FROM monitored"
+    else:
+        query = "SELECT * FROM monitored WHERE flair_enforce is 1"
+    results = database_access(query, None, fetch_many=True)
     final_list = [x[0].lower() for x in results]
 
     return final_list
@@ -143,9 +221,7 @@ def monitored_subreddits_enforce_status(subreddit_name):
     :return: A boolean. Default is True.
     """
     subreddit_name = subreddit_name.lower()
-    CURSOR_MAIN.execute("SELECT * FROM monitored WHERE subreddit = ?",
-                        (subreddit_name,))
-    result = CURSOR_MAIN.fetchone()
+    result = database_access("SELECT * FROM monitored WHERE subreddit = ?", (subreddit_name,))
 
     # This subreddit is stored in our monitored database; access it.
     if result is not None:
@@ -213,18 +289,19 @@ def last_subscriber_count(subreddit_name):
 def extended_retrieve(subreddit_name):
     """This function fetches the extended data stored in `monitored`
     and returns it as a dictionary.
+    This function is used by both routines.
 
     :param subreddit_name: Name of a subreddit (no r/).
     :return: A dictionary containing the extended data for a
-             particular subreddit. None otherwise.
+             particular subreddit. An empty dictionary otherwise.
     """
     # Access the database.
-    CURSOR_MAIN.execute("SELECT * FROM monitored WHERE subreddit = ?", (subreddit_name.lower(),))
-    result = CURSOR_MAIN.fetchone()
-
-    # The subreddit has extended data to convert into a dictionary.
+    query = "SELECT * FROM monitored WHERE subreddit = ?"
+    result = database_access(query, (subreddit_name.lower(),))
     if result is not None:
         return literal_eval(result[2])
+    else:
+        return {}
 
 
 def extended_insert(subreddit_name, new_data):
@@ -471,6 +548,7 @@ def counter_updater(subreddit_name, action_type, database_type,
     database to indicate how many times an action has been performed for
     a subreddit. For example, how many times posts have been removed,
     how many times posts have been restored, etc.
+    This function is used by both routines.
 
     :param subreddit_name: Name of a subreddit.
     :param action_type: The type of action that Artemis did.
@@ -598,14 +676,14 @@ def counter_combiner(subreddit_name):
     """This function retrieves all actions from the two databases and
     combines them together into a single dictionary. Please note that
     this not work with `all`, for some reason.
+    This function is used by both routines.
 
     :return: A dictionary with action data, otherwise, `None`.
     """
     retrieve_command = 'SELECT * FROM subreddit_actions WHERE subreddit = ?'
     CURSOR_STATS.execute(retrieve_command, (subreddit_name,))
     result_s = CURSOR_STATS.fetchone()
-    CURSOR_MAIN.execute(retrieve_command, (subreddit_name,))
-    result_m = CURSOR_MAIN.fetchone()
+    result_m = database_access(retrieve_command, (subreddit_name,))
 
     # Exit if there are zero results.
     if result_s is None and result_m is None:
@@ -775,3 +853,6 @@ def cleanup():
         logger.info('Cleanup: Last {:,} log entries kept.'.format(lines_to_keep))
 
     return
+
+
+table_creator()  # Create the database tables if they do not exist.
