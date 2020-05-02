@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: UTF-8 -*-
-
-"""A collection of responses and text used by Artemis to moderators,
-regular users, and wikipages."""
+"""The text component is a collection of responses and text used by
+Artemis in its interactions with moderators, regular users, and wiki
+pages.
+"""
 
 BOT_DISCLAIMER = ("\n\n---\n^Artemis: ^a ^moderation ^assistant ^for ^r/{0} ^| "
                   "[^Contact ^r/{0} ^mods](https://www.reddit.com/message/compose?to=%2Fr%2F{0}) "
