@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: UTF-8 -*-
+"""The STATS runtime provides the statistics operation for the bot,
+which is run daily after midnight UTC.
+"""
 import datetime
 import os
 import re
@@ -30,10 +33,15 @@ from text import *
 
 """LOGGING IN"""
 
-connection.login()
+connection.login(False)
 reddit = connection.reddit
 reddit_helper = connection.reddit_helper
 CYCLES = 0
+
+# Initially fetch the current list of monitored subreddits.
+MONITORED_SUBREDDITS = database.monitored_subreddits_retrieve()
+logger.info("Stats: {:,} monitored subreddits loaded.".format(len(MONITORED_SUBREDDITS)))
+
 
 """SUBREDDIT TRAFFIC RETRIEVAL"""
 
@@ -220,16 +228,19 @@ def subreddit_traffic_retriever(subreddit_name):
                                                                         subreddit_name,
                                                                         earliest_month))
         retrieved_data = subreddit_pushshift_access(stat_query)
-        returned_months = retrieved_data['aggs']['created_utc']
+        if 'aggs' not in retrieved_data:
+            correlated_data[search_type] = {}
+        else:
+            returned_months = retrieved_data['aggs']['created_utc']
 
-        for entry in returned_months:
-            month = timekeeping.month_convert_to_string(entry['key'])
-            count = entry['doc_count']
-            if not count:
-                formatted_count = "N/A"
-            else:
-                formatted_count = "{:,}".format(count)
-            correlated_data[search_type][month] = formatted_count
+            for entry in returned_months:
+                month = timekeeping.month_convert_to_string(entry['key'])
+                count = entry['doc_count']
+                if not count:
+                    formatted_count = "N/A"
+                else:
+                    formatted_count = "{:,}".format(count)
+                correlated_data[search_type][month] = formatted_count
 
     # Iterate over our dictionary.
     for key in sorted(traffic_dictionary, reverse=True):
@@ -519,7 +530,7 @@ def subreddit_subscribers_retriever(subreddit_name):
     try:
         created = database.extended_retrieve(subreddit_name)['created_utc']
         founding_date = timekeeping.convert_to_string(created)
-    except TypeError:
+    except (KeyError, TypeError):
         try:
             founding_epoch = reddit.subreddit(subreddit_name).created_utc
             founding_date = timekeeping.convert_to_string(founding_epoch)
@@ -1400,7 +1411,6 @@ def subreddit_pushshift_activity_retriever(subreddit_name, start_time, end_time,
     # in month, and get the number of days in between these two dates.
     # When getting the `end_time`, Artemis will get it from literally
     # the last second of the day to account for full coverage.
-    num_days = timekeeping.num_days_between(start_time, end_time) + 1
     specific_month = start_time.rsplit('-', 1)[0]
     start_time = timekeeping.convert_to_unix(start_time)
     end_time = timekeeping.convert_to_unix(end_time) + 86399
@@ -1446,25 +1456,25 @@ def subreddit_pushshift_activity_retriever(subreddit_name, start_time, end_time,
             database.activity_insert(subreddit_name, specific_month, activity_index, days_data)
 
     # Get the data formatted.
-    formatted_data = subreddit_pushshift_activity_collater(days_data, search_type, num_days)
+    formatted_data = subreddit_pushshift_activity_collater(days_data, search_type)
 
     return formatted_data
 
 
-def subreddit_pushshift_activity_collater(input_dictionary, search_type, num_days):
+def subreddit_pushshift_activity_collater(input_dictionary, search_type):
     """This simple function takes data from its equivalent dictionary
     and outputs it as a Markdown segment.
 
     :param input_dictionary: A dictionary containing data on the most
                              active days during a time period.
     :param search_type: Either `submission` or `comment`.
-    :param num_days: The number of days we are evaluating, passed from
-                     the other function.
     :return: A Markdown segment.
     """
     days_highest = []
     lines_to_post = []
     unavailable = "* It appears that there were no {}s during this period.".format(search_type)
+    # Define the number of days stored in the dictionary.
+    num_days = len(input_dictionary)
 
     # Find the average number of the type.
     if num_days > 0:
@@ -2040,8 +2050,8 @@ def subreddit_userflair_counter(subreddit_name):
         if len(usage_index) > 0:
             for emoji_string in list(sorted(emoji_dict.keys(), key=str.lower)):
                 if emoji_string in usage_index:
-                    new_line = "| [{}]({}) | {:,} |".format(emoji_string, emoji_dict[emoji_string],
-                                                            usage_index[emoji_string])
+                    new_line = "| [{}]({}) | {} |".format(emoji_string, emoji_dict[emoji_string],
+                                                          usage_index[emoji_string])
                     formatted_lines.append(new_line)
     else:
         # This is the process for OLD Reddit userflairs
@@ -2071,11 +2081,10 @@ def subreddit_userflair_counter(subreddit_name):
                     # There is just a regular default flair.
                     if len(css_string) == 0:
                         css_string_format = "[blank]"
-                        new_line = "| `{}` | {:,} |".format(css_string_format,
-                                                            usage_index[css_string])
+                        new_line = "| `{}` | {} |".format(css_string_format,
+                                                          usage_index[css_string])
                     else:
-                        new_line = "| `{}` | {:,} |".format(css_string,
-                                                            usage_index[css_string])
+                        new_line = "| `{}` | {} |".format(css_string, usage_index[css_string])
                     formatted_lines.append(new_line)
 
     # Format our output. Add a header and display everything else
@@ -2464,7 +2473,7 @@ def wikipage_userflair_editor(subreddit_list):
 
                 # Edit the actual page with the updated data.
                 stat_page.edit(content=new_text,
-                               reason='Updating with userflair data for {}.'.format(month))
+                               reason='Updating with userflair data for {} UTC.'.format(month))
 
     minutes_elapsed = round((time.time() - current_time) / 60, 2)
     logger.info('Wikipage Userflair Editor: Completed userflair update '
@@ -2550,10 +2559,9 @@ def wikipage_status_collater(subreddit_name):
 
     # Get the activity index (the place of the subreddit relative to
     # the others).
-    currently_monitored = database.monitored_subreddits_retrieve()
     try:
-        index_num = "#{}/{}".format(currently_monitored.index(subreddit_name) + 1,
-                                    len(currently_monitored))
+        index_num = "#{}/{}".format(MONITORED_SUBREDDITS.index(subreddit_name) + 1,
+                                    len(MONITORED_SUBREDDITS))
     except ValueError:
         # The subreddit is not monitored and thus has no index. This
         # error only comes when testing non-monitored subreddits.
@@ -2661,8 +2669,8 @@ def wikipage_get_all_actions():
     formatted_lines = []
 
     # Combine the actions databases.
-    database.CURSOR_MAIN.execute('SELECT * FROM subreddit_actions WHERE subreddit != ?', ('all',))
-    results_m = database.CURSOR_MAIN.fetchall()
+    query_m = 'SELECT * FROM subreddit_actions WHERE subreddit != ?'
+    results_m = database.database_access(query_m, ('all',), fetch_many=True)
     database.CURSOR_STATS.execute('SELECT * FROM subreddit_actions WHERE subreddit != ?', ('all',))
     results_s = database.CURSOR_STATS.fetchall()
     results = dict(Counter(results_m) + Counter(results_s))
@@ -2710,14 +2718,13 @@ def wikipage_dashboard_collater(run_time=2.00):
                 "[Moderators](https://www.reddit.com/r/{0}/about/moderators) |")
 
     # Get the list of monitored subs and alphabetize it.
-    list_of_subs = database.monitored_subreddits_retrieve()
+    list_of_subs = list(MONITORED_SUBREDDITS)
     list_of_subs.sort()
 
     # Access my database to get the addition and created dates for
     # monitored subreddits. This fetches it from the other main database
     # but only *reads*, not writes to it.
-    database.CURSOR_MAIN.execute("SELECT * FROM monitored")
-    results = database.CURSOR_MAIN.fetchall()
+    results = database.database_access("SELECT * FROM monitored", None, fetch_many=True)
     for line in results:
         community = line[0]
         extended_data = literal_eval(line[2])
@@ -2777,7 +2784,7 @@ def wikipage_dashboard_collater(run_time=2.00):
 
     # Access the dashboard wikipage and update it with the information.
     dashboard = reddit.subreddit('translatorBOT').wiki['artemis']
-    time_note = 'Updating dashboard for {}.'.format(timekeeping.convert_to_string(time.time()))
+    time_note = 'Updating dashboard for {} UTC.'.format(timekeeping.convert_to_string(time.time()))
     dashboard.edit(content=body, reason=time_note)
     logger.info('Dashboard: Updated the overall dashboard.')
 
@@ -2807,21 +2814,18 @@ def widget_updater(action_data):
     subreddit_list = subreddit_public_moderated(AUTH.username)['list']
 
     # Search for the relevant status and table widgets for editing.
-    status_id = 'widget_13xm3fwr0w9mu'
     status_widget = None
-    table_id = 'widget_13xztx496z34h'
     table_widget = None
-    actions_id = 'widget_14159zz24snay'
     action_widget = None
 
     # Assign the widgets to our variables.
     for widget in reddit.subreddit(AUTH.username).widgets.sidebar:
         if isinstance(widget, praw.models.TextArea):
-            if widget.id == status_id:
+            if widget.id == SETTINGS.widget_statistics_update:
                 status_widget = widget
-            elif widget.id == table_id:
+            elif widget.id == SETTINGS.widget_statistics_public_table:
                 table_widget = widget
-            elif widget.id == actions_id:
+            elif widget.id == SETTINGS.widget_statistics_actions:
                 action_widget = widget
 
     # If we are unable to access either widget, return.
@@ -2977,7 +2981,7 @@ def main_recheck_oldest():
     """
     # We check public subreddits to see if we can get new data about
     # their oldest posts.
-    for community in database.monitored_subreddits_retrieve():
+    for community in MONITORED_SUBREDDITS:
         # Check to see if there's saved data. If there isn't it'll be
         # returned as `None`.
         result = database.activity_retrieve(community, 'oldest', 'oldest')
@@ -3263,7 +3267,7 @@ def main_timer(manual_start=False):
     # This is run at a varying time period in order to avoid
     # too many API calls at the same time.
     userflair_update_days = [SETTINGS.day_action, SETTINGS.day_action + 14]
-    userflair_update_time = SETTINGS.action_time + 12
+    userflair_update_time = SETTINGS.action_time + SETTINGS.userflair_time_offset
 
     # Check to see if the statistics functions have already been run.
     # If we have already processed the actions for today, note that.
@@ -3305,23 +3309,16 @@ def main_timer(manual_start=False):
         return
 
     '''
-    Here we start a cycle. The cycles here basically make it so that
-    while Artemis is gathering statistics it will check
-    in on unflaired posts at certain intervals. It's simple - if the
-    time elapsed is longer than the cycle's duration,
-    Artemis will check for unflaired posts. This is to allow consistency
-    in dealing with unflaired posts.
+    Here we start the cycle for gathering statistics.
     '''
     # Get the list of all our monitored subreddits.
     # Check integrity first, make sure the subs to update are accurate.
-    # This is done by comparing the local list to the online list.
     # Also refresh the configuration data.
-    monitored_list = database.monitored_subreddits_retrieve()
+    global MONITORED_SUBREDDITS
+    MONITORED_SUBREDDITS = database.monitored_subreddits_retrieve()
     connection.config_retriever()
 
-    # Temporary dictionary that stores formatted data for statistics
-    # pages, which is cleared after the daily statistics run.
-    # This was originally a global variable.
+    # List of already processed subreddits.
     already_processed = []
 
     # On a few specific days, run the userflair updating thread first in
@@ -3336,14 +3333,15 @@ def main_timer(manual_start=False):
         # Iterate over the subreddits, to see if they meet the minimum
         # amount of subscribers needed OR if they have manually opted in
         # to getting userflair statistics, or if they have opted out.
-        for sub in monitored_list:
+        for sub in MONITORED_SUBREDDITS:
+            sub_data = database.extended_retrieve(sub)
             if database.last_subscriber_count(sub) > SETTINGS.min_s_userflair:
                 userflair_check_list.append(sub)
-                if 'userflair_statistics' in database.extended_retrieve(sub):
-                    if not database.extended_retrieve(sub)['userflair_statistics']:
+                if 'userflair_statistics' in sub_data:
+                    if not sub_data['userflair_statistics']:
                         userflair_check_list.remove(sub)
-            elif 'userflair_statistics' in database.extended_retrieve(sub):
-                if database.extended_retrieve(sub)['userflair_statistics']:
+            elif 'userflair_statistics' in sub_data:
+                if sub_data['userflair_statistics']:
                     userflair_check_list.append(sub)
 
         # Update our counters.
@@ -3378,7 +3376,7 @@ def main_timer(manual_start=False):
     # This is the main part of gathering statistics.
     # Iterate over the communities we're monitoring, compile the
     # statistics and add to dictionary.
-    for community in monitored_list:
+    for community in MONITORED_SUBREDDITS:
         # Check to see if we have acted upon this subreddit for today
         # and already have its statistics.
         community_start = time.time()
@@ -3394,9 +3392,9 @@ def main_timer(manual_start=False):
         # know it's done. Also fetch what number this community is in
         # the overall process (its index number) so that the progress
         # can be measured as it goes along.
-        community_place = monitored_list.index(community) + 1
+        community_place = MONITORED_SUBREDDITS.index(community) + 1
         logger.info("Main Timer: BEGINNING r/{} (#{}/{}).".format(community, community_place,
-                                                                  len(monitored_list)))
+                                                                  len(MONITORED_SUBREDDITS)))
         database.CURSOR_STATS.execute("INSERT INTO subreddit_updated VALUES (?, ?)",
                                       (community, current_date_string))
         database.CONN_STATS.commit()
@@ -3406,7 +3404,7 @@ def main_timer(manual_start=False):
         # Also check to see if there are any pending subreddits to
         # initialize data for.
         if not bool(community_place % 10) and community_place != 0:
-            widget_status_updater(community_place, len(monitored_list), current_date_string,
+            widget_status_updater(community_place, len(MONITORED_SUBREDDITS), current_date_string,
                                   start_time)
             main_check_start()
 
@@ -3465,7 +3463,7 @@ def main_timer(manual_start=False):
 
         # Here the function actually edits the wiki pages. There is a
         # boolean in settings which governs whether the stats are
-        # written locally for testing or on the live wikipages.
+        # written locally for testing or on the live wiki pages.
         if SETTINGS.stats_local:
             wikipage_editor_local(community, community_compiled_data)
         else:
@@ -3528,4 +3526,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         # Manual termination of the script with Ctrl-C.
         logger.info('Manual user shutdown via keyboard.')
+        database.CONN_MAIN.close()
+        database.CONN_STATS.close()
         sys.exit()
