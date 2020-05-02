@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: UTF-8 -*-
+"""The MAIN runtime provides the messaging and flair enforcement
+operations for the bot.
+"""
 import os
 import re
 import sys
@@ -37,9 +40,10 @@ NUMBER_TO_FETCH = connection.NUMBER_TO_FETCH
 
 
 def widget_operational_status_updater():
-    """Widget that updates on r/AssistantBOT with the current time.
+    """Widget updated on r/AssistantBOT with the current time.
     This basically tells us that the bot is active with the time being
     formatted according to ISO 8601: https://www.w3.org/TR/NOTE-datetime
+    It is run every isochronism.
 
     :return: `None`.
     """
@@ -47,17 +51,16 @@ def widget_operational_status_updater():
     if AUTH.username != "AssistantBOT":
         return
 
-    current_time = timekeeping.convert_to_string(time.time())
+    current_time = timekeeping.time_convert_to_string(time.time())
     wa_time = "{} {} UTC".format(current_time.split('T')[0], current_time.split('T')[1][:-1])
     wa_link = "https://www.wolframalpha.com/input/?i={}+to+current+geoip+location".format(wa_time)
     current_time = current_time.replace('Z', '[Z]({})'.format(wa_link))  # Add the link.
 
     # Get the operational status widget.
-    operational_id = 'widget_142uuvol5mzqi'
     operational_widget = None
     for widget in reddit.subreddit(AUTH.username).widgets.sidebar:
         if isinstance(widget, praw.models.TextArea):
-            if widget.id == operational_id:
+            if widget.id == SETTINGS.widget_operational_status:
                 operational_widget = widget
                 break
 
@@ -935,10 +938,11 @@ def flair_is_user_mod(query_username, subreddit_name):
 def main_monitored_integrity_checker():
     """This function double-checks the database to make sure the local
     list of subreddits that are being monitored are the same as the
-    one that is live on-site.
+    one that is live on-site, an integrity check.
 
     If it doesn't match, it'll remove ones it is not actually a
-    moderator of.
+    moderator of. This function will also automatically remove a
+    subreddit from the monitored list if it is banned by the site.
 
     :return: Nothing.
     """
@@ -956,7 +960,7 @@ def main_monitored_integrity_checker():
     if len(problematic_subreddits) > 0:
         for community in problematic_subreddits:
             database.subreddit_delete(community)
-            print('Integrity Checker: No longer mod of r/{}. Removed.'.format(community))
+            logger.info('Integrity Checker: No longer mod of r/{}. Removed.'.format(community))
 
     return
 
@@ -1327,11 +1331,21 @@ def main_post_approval(submission, template_id=None):
 
 
 def main_messaging():
-    """The basic function for checking for moderator invites to a
-    subreddit, and accepting them. This function also accepts enabling
-    or disabling flair enforcing if Artemis gets a message with either
-    `Enable` or `Disable` from a SUBREDDIT. A message from a moderator
+    """The basic function for checking for messages to the user account.
+
+    This function also accepts certain defined commands if Artemis gets
+    a message from a SUBREDDIT. A message from a moderator
     user account does *not* count.
+
+    MOD COMMANDS (subject):
+    `Disable`: Completely disable flair enforcing on a subreddit.
+    `Enable`: Re-enable flair enforcing on a subreddit.
+    `Example`: See an example of a flair enforcement message to users.
+    `Update`: Create/update an advanced config page for a subreddit.
+    `Query`: Retrieve information on posts processed by Artemis.
+    `Revert`: Revert to the default config and clear all advanced
+              settings.
+    `Takeout`: Export a subreddit's Artemis data as JSON.
 
     There is also a function that removes the SUBREDDIT from being
     monitored when de-modded.
@@ -1347,7 +1361,7 @@ def main_messaging():
     for message in messages:
         message.mark_read()
 
-        # Get the variables of the message.
+        # Define the variables of the message.
         msg_subject = message.subject.lower()
         msg_subreddit = message.subreddit
         msg_author = str(message.author)
@@ -1411,6 +1425,10 @@ def main_messaging():
                 message.reply('Messaging: Froze these subreddits: **{}**.'.format(list_to_freeze))
             elif 'kill' in msg_subject:
                 message.reply('Messaging: Terminated process runtime.')
+                database.CONN_MAIN.close()
+                database.CONN_STATS.close()
+                logger.info('Messaging: Terminated process runtime via a `kill` command from '
+                            'my creator.')
                 sys.exit()
 
         # FLAIR ENFORCEMENT AND SELECTION
@@ -1445,15 +1463,20 @@ def main_messaging():
                     logger.info('Messaging: > Set flair via messaging for '
                                 'post `{}`.'.format(relevant_post_id))
 
-        # Otherwise, reject non-subreddit messages. Flair enforcement
-        # replies to regular users were done earlier.
+            # Once this is completed, proceed to the next item.
+            continue
+
+        # If it's not a flair enforcement message, reject non-subreddit
+        # messages. Flair enforcement replies to regular users were
+        # done earlier.
         if msg_subreddit is None:
-            logger.debug('Messaging: > Message "{}" is not from a subreddit.'.format(msg_subject))
+            logger.info('Messaging: > Message "{}" from u/{} is not from a '
+                        'subreddit.'.format(msg_subject, msg_author))
             continue
 
         # MODERATION-RELATED MESSAGING FUNCTIONS
         # Get just the short name of the subreddit.
-        new_subreddit = msg_subreddit.display_name.lower()
+        relevant_subreddit = msg_subreddit.display_name.lower()
         # This is an auto-generated moderation invitation message.
         # If we are in a mode where we DO NOT want to accept invites
         # yet during a statistics cycle, save the message for later.
@@ -1467,10 +1490,10 @@ def main_messaging():
 
             # Check against our configuration data. Exit if it matches
             # pre-existing data.
-            if new_subreddit in connection.CONFIG.subreddits_omit:
+            if relevant_subreddit in connection.CONFIG.subreddits_omit:
                 # Message my creator about this.
-                messaging_send_creator(new_subreddit, "omit",
-                                       "View it at r/{}.".format(new_subreddit))
+                messaging_send_creator(relevant_subreddit, "omit",
+                                       "View it at r/{}.".format(relevant_subreddit))
                 continue
 
             # Check for minimum subscriber count.
@@ -1481,19 +1504,19 @@ def main_messaging():
                 subscriber_count = msg_subreddit.subscribers
             except prawcore.exceptions.Forbidden:
                 # This subreddit is quarantined; message my creator.
-                messaging_send_creator(new_subreddit, "forbidden",
-                                       "View it at r/{}.".format(new_subreddit))
+                messaging_send_creator(relevant_subreddit, "forbidden",
+                                       "View it at r/{}.".format(relevant_subreddit))
                 continue
             except prawcore.exceptions.NotFound:
                 # Error fetching the subscriber count.
-                messaging_send_creator(new_subreddit, "not_found",
-                                       "View it at r/{}.".format(new_subreddit))
+                messaging_send_creator(relevant_subreddit, "not_found",
+                                       "View it at r/{}.".format(relevant_subreddit))
                 continue
 
             # Check if it's a user profile subreddit, that begins with
             # the prefix "u_". Since these don't have post flairs,
             # it's pointless to moderate them.
-            if new_subreddit.startswith("u_"):
+            if relevant_subreddit.startswith("u_"):
                 logger.info("Messaging: > Invite to user profile subreddit. Not supported.")
                 message.reply(MSG_MOD_INIT_PROFILE)
                 continue
@@ -1516,7 +1539,7 @@ def main_messaging():
                              'display_name': msg_subreddit.display_name,
                              'added_utc': int(message.created_utc),
                              'invite_id': message.id}
-            database.subreddit_insert(new_subreddit, extended_data)
+            database.subreddit_insert(relevant_subreddit, extended_data)
 
             # Check for the minimum subscriber count.
             # If it's below the minimum, turn off statistics gathering.
@@ -1524,13 +1547,14 @@ def main_messaging():
                 subscribers_until_minimum = SETTINGS.min_s_stats - subscriber_count
                 minimum_section = MSG_MOD_INIT_MINIMUM.format(SETTINGS.min_s_stats,
                                                               subscribers_until_minimum)
-                logger.info("Messaging: r/{} subscribers below minimum.".format(new_subreddit))
+                logger.info("Messaging: r/{} subscribers below "
+                            "minimum requiured for statistics.".format(relevant_subreddit))
             else:
-                minimum_section = MSG_MOD_INIT_NON_MINIMUM.format(new_subreddit)
+                minimum_section = MSG_MOD_INIT_NON_MINIMUM.format(relevant_subreddit)
 
             # Determine the permissions I have and what sort of status
             # the subreddit wants.
-            current_permissions = connection.obtain_mod_permissions(new_subreddit)
+            current_permissions = connection.obtain_mod_permissions(relevant_subreddit)
             if current_permissions[0]:
                 # Fetch the list of moderator permissions we have.
                 # The second element will be an empty list if Artemis is
@@ -1545,12 +1569,12 @@ def main_messaging():
                 # `posts` mod permission is granted.
                 if 'posts' in list_perms and 'wiki' in list_perms or 'all' in list_perms:
                     mode = "Strict"
-                    mode_component = MSG_MOD_INIT_STRICT.format(new_subreddit)
+                    mode_component = MSG_MOD_INIT_STRICT.format(relevant_subreddit)
                 elif 'wiki' not in list_perms and 'all' not in list_perms:
                     # We were invited to be a mod but don't have the
                     # proper permissions. Let the mods know.
-                    content = MSG_MOD_INIT_NEED_WIKI.format(new_subreddit)
-                    message.reply(content + BOT_DISCLAIMER.format(new_subreddit))
+                    content = MSG_MOD_INIT_NEED_WIKI.format(relevant_subreddit)
+                    message.reply(content + BOT_DISCLAIMER.format(relevant_subreddit))
                     logger.info("Messaging: Don't have the right permissions. Replied to sub.")
 
                 # Check for the `flair` permission.
@@ -1565,7 +1589,7 @@ def main_messaging():
 
             # Check for the templates that are available to Artemis and
             # see how many flair templates we can find.
-            template_number = len(subreddit_templates_retrieve(new_subreddit))
+            template_number = len(subreddit_templates_retrieve(relevant_subreddit))
 
             # There are no publicly available flairs for this sub.
             # Let the mods know.
@@ -1573,7 +1597,7 @@ def main_messaging():
                 template_section = MSG_MOD_INIT_NO_FLAIRS
                 # Disable flair enforcement since there are no flairs
                 # for people to select anyway.
-                database.monitored_subreddits_enforce_change(new_subreddit, False)
+                database.monitored_subreddits_enforce_change(relevant_subreddit, False)
                 logger.info("Messaging: Subreddit has no flairs. Disabled flair enforcement.")
                 flair_enforce_mode = 'Off'
             else:
@@ -1581,23 +1605,23 @@ def main_messaging():
                 # subreddit. Format the template section.
                 template_section = ("\nThis subreddit has **{} user-accessible post flairs** "
                                     "to enforce:\n\n".format(template_number))
-                template_section += subreddit_templates_collater(new_subreddit)
-                flair_enforce_mode = connection.monitored_subreddits_enforce_mode(new_subreddit)
+                template_section += subreddit_templates_collater(relevant_subreddit)
+                flair_enforce_mode = connection.monitored_subreddits_enforce_mode(relevant_subreddit)
 
             # Format the reply to the subreddit, and confirm the invite.
-            body = MSG_MOD_INIT_ACCEPT.format(new_subreddit, mode_component, template_section,
+            body = MSG_MOD_INIT_ACCEPT.format(relevant_subreddit, mode_component, template_section,
                                               messaging_component, minimum_section,
                                               flair_enforce_mode)
-            message.reply(body + BOT_DISCLAIMER.format(new_subreddit))
+            message.reply(body + BOT_DISCLAIMER.format(relevant_subreddit))
             logger.info("Messaging: Sent confirmation reply. Set to `{}` mode.".format(mode))
 
             # If the flair enforce state is `On`, send an example
             # message as a new message to modmail.
-            if database.monitored_subreddits_enforce_status(new_subreddit):
+            if database.monitored_subreddits_enforce_status(relevant_subreddit):
                 example_text = "*Should your subreddit choose to enforce post flairs*:\n\n"
                 example_text += messaging_example_collater(msg_subreddit)
                 example_subject = ("[Artemis] Example Flair Enforcement Message "
-                                   "for r/{}".format(new_subreddit))
+                                   "for r/{}".format(relevant_subreddit))
                 msg_subreddit.message(example_subject, example_text)
                 logger.info("Messaging: Sent example message.".format(mode))
 
@@ -1605,8 +1629,8 @@ def main_messaging():
             # active on the appropriate subreddit.
             # We do a quick check to see if we have noted this subreddit
             # before on my user profile. Mark NSFW appropriately.
-            status = "Accepted mod invite to r/{}".format(new_subreddit)
-            subreddit_url = 'https://www.reddit.com/r/{}'.format(new_subreddit)
+            status = "Accepted mod invite to r/{}".format(relevant_subreddit)
+            subreddit_url = 'https://www.reddit.com/r/{}'.format(relevant_subreddit)
             try:
                 user_sub = 'u_{}'.format(AUTH.username)
                 log_entry = reddit.subreddit(user_sub).submit(title=status, url=subreddit_url,
@@ -1615,7 +1639,8 @@ def main_messaging():
             except praw.exceptions.APIException:
                 # This link was already submitted to my profile before.
                 # Set `log_entry` to `None`. Send message to creator.
-                logger.info('Messaging: r/{} has already been added before.'.format(new_subreddit))
+                logger.info('Messaging: r/{} has already been added '
+                            'previously.'.format(relevant_subreddit))
                 log_entry = None
             else:
                 # If the log submission is successful, lock this log
@@ -1626,7 +1651,7 @@ def main_messaging():
             # subreddit by writing the subreddit name into a scratch
             # file that stats will pick up, and clear.
             with open(FILE_ADDRESS.start, 'a+', encoding='utf-8') as f:
-                f.write("\n{}".format(new_subreddit))
+                f.write("\n{}".format(relevant_subreddit))
 
             if log_entry is not None:
                 # This has not been noted before. Format a preview text.
@@ -1635,7 +1660,7 @@ def main_messaging():
                 subreddit_about = msg_subreddit.public_description
                 info = ('**r/{} ({:,} subscribers, created {})**'
                         '\n\n* `{}` mode\n\n> *{}*\n\n> {}')
-                info = info.format(new_subreddit, msg_subreddit.subscribers,
+                info = info.format(relevant_subreddit, msg_subreddit.subscribers,
                                    timekeeping.convert_to_string(msg_subreddit.created_utc),
                                    flair_enforce_mode, msg_subreddit.title,
                                    subreddit_about.replace("\n", "\n> "))
@@ -1649,32 +1674,32 @@ def main_messaging():
                     log_comment.mod.lock()
 
             # Check against the history.
-            wikipage_edit_history('readd', new_subreddit)
+            wikipage_edit_history('readd', relevant_subreddit)
 
         # Takeout, or exporting data, is located here in order to allow
         # for subreddits that formerly used Artemis to gain access to
         # any stored data.
         if 'takeout' in msg_subject:
             logger.info('Messaging: New message to export '
-                        'r/{} takeout data.'.format(new_subreddit))
+                        'r/{} takeout data.'.format(relevant_subreddit))
 
             # Get the Pastebin data and reply to the message.
-            pastebin_url = main_takeout(new_subreddit)
+            pastebin_url = main_takeout(relevant_subreddit)
             if pastebin_url is not None:
-                body = MSG_MOD_TAKEOUT.format(new_subreddit, pastebin_url)
+                body = MSG_MOD_TAKEOUT.format(relevant_subreddit, pastebin_url)
             else:
-                body = MSG_MOD_TAKEOUT_NONE.format(new_subreddit)
-            message.reply(body + BOT_DISCLAIMER.format(new_subreddit))
+                body = MSG_MOD_TAKEOUT_NONE.format(relevant_subreddit)
+            message.reply(body + BOT_DISCLAIMER.format(relevant_subreddit))
             logger.info('Messaging: Replied with takeout data.')
 
         # EXIT EARLY if subreddit is NOT in monitored list and it wasn't
         # a mod invite or a takeout request, as there's no point in
         # processing said message.
-        current_permissions = connection.obtain_mod_permissions(new_subreddit)
+        current_permissions = connection.obtain_mod_permissions(relevant_subreddit)
         removal_subject = 'has been removed as a moderator from'
         if not current_permissions[0] and removal_subject not in msg_subject:
             # We got a message but we are not monitoring that subreddit.
-            logger.info("Messaging: New message but not a mod of r/{}.".format(new_subreddit))
+            logger.info("Messaging: New message but not a mod of r/{}.".format(relevant_subreddit))
             continue
 
         # OTHER MODERATION-RELATED MESSAGING FUNCTIONS
@@ -1682,12 +1707,12 @@ def main_messaging():
             # This is a request to toggle ON the flair_enforce status of
             # the subreddit.
             logger.info('Messaging: New message to enable '
-                        'r/{} flair enforcing.'.format(new_subreddit))
-            database.monitored_subreddits_enforce_change(new_subreddit, True)
+                        'r/{} flair enforcing.'.format(relevant_subreddit))
+            database.monitored_subreddits_enforce_change(relevant_subreddit, True)
 
             # Add the example flair enforcement text as well.
             example_text = messaging_example_collater(msg_subreddit)
-            message_body = "{}\n\n{}".format(MSG_MOD_RESP_ENABLE.format(new_subreddit),
+            message_body = "{}\n\n{}".format(MSG_MOD_RESP_ENABLE.format(relevant_subreddit),
                                              example_text)
             message.reply(message_body)
 
@@ -1695,10 +1720,10 @@ def main_messaging():
             # This is a request to toggle OFF the flair_enforce status
             # of the subreddit.
             logger.info('Messaging: New message to disable '
-                        'r/{} flair enforcing.'.format(new_subreddit))
-            database.monitored_subreddits_enforce_change(new_subreddit, False)
-            message.reply(MSG_MOD_RESP_DISABLE.format(new_subreddit)
-                          + BOT_DISCLAIMER.format(new_subreddit))
+                        'r/{} flair enforcing.'.format(relevant_subreddit))
+            database.monitored_subreddits_enforce_change(relevant_subreddit, False)
+            message.reply(MSG_MOD_RESP_DISABLE.format(relevant_subreddit)
+                          + BOT_DISCLAIMER.format(relevant_subreddit))
 
         elif 'example' in msg_subject:
             # This is a request to check out what the flair template
@@ -1707,10 +1732,11 @@ def main_messaging():
             message.reply(example_text)
 
         elif 'update' in msg_subject:
-            logger.info('Messaging: New message to update r/{} config data.'.format(new_subreddit))
+            logger.info('Messaging: New message to update '
+                        'r/{} config data.'.format(relevant_subreddit))
 
             # The first argument will either be `True` or `False`.
-            config_status = wikipage_config(new_subreddit)
+            config_status = wikipage_config(relevant_subreddit)
             if config_status[0]:
                 # Send back a reply confirming everything was processed
                 # successfully and include an example of the flair
@@ -1721,21 +1747,21 @@ def main_messaging():
                                                example_text)
                 message.reply(reply_text)
                 logger.info('Messaging: > Configuration data for '
-                            'r/{} processed successfully.'.format(new_subreddit))
-                database.counter_updater(new_subreddit, "Updated configuration", 'main')
+                            'r/{} processed successfully.'.format(relevant_subreddit))
+                database.counter_updater(relevant_subreddit, "Updated configuration", 'main')
             else:
                 # Send back a reply noting that there was some sort of
                 # error, and include the error.
                 body = CONFIG_BAD.format(msg_subreddit.display_name, config_status[1])
-                message.reply(body + BOT_DISCLAIMER.format(new_subreddit))
+                message.reply(body + BOT_DISCLAIMER.format(relevant_subreddit))
                 logger.info('Messaging: > Configuration data for '
-                            'r/{} encountered an error.'.format(new_subreddit))
+                            'r/{} encountered an error.'.format(relevant_subreddit))
 
         elif 'revert' in msg_subject:
             logger.info('Messaging: New message to revert '
-                        'r/{} configuration data.'.format(new_subreddit))
+                        'r/{} configuration data.'.format(relevant_subreddit))
             database.CURSOR_MAIN.execute("SELECT * FROM monitored WHERE subreddit = ?",
-                                         (new_subreddit,))
+                                         (relevant_subreddit,))
             result = database.CURSOR_MAIN.fetchone()
             if result is not None:
                 # We have saved extended data. We want to wipe out the
@@ -1753,7 +1779,7 @@ def main_messaging():
                 # Reset the settings in extended data.
                 update_command = "UPDATE monitored SET extended = ? WHERE subreddit = ?"
                 database.CURSOR_MAIN.execute(update_command, (str(extended_data_existing),
-                                                              new_subreddit))
+                                                              relevant_subreddit))
                 database.CONN_MAIN.commit()
 
                 # Clear the wikipage, and check the subreddit subscriber
@@ -1770,10 +1796,10 @@ def main_messaging():
                                  reason='Reverting configuration per mod request.')
 
                 # Send back a reply.
-                message.reply(CONFIG_REVERT.format(new_subreddit)
-                              + BOT_DISCLAIMER.format(new_subreddit))
-                database.counter_updater(new_subreddit, "Reverted configuration", 'main')
-                logger.info('Messaging: > Config data for r/{} reverted.'.format(new_subreddit))
+                message.reply(CONFIG_REVERT.format(relevant_subreddit)
+                              + BOT_DISCLAIMER.format(relevant_subreddit))
+                database.counter_updater(relevant_subreddit, "Reverted configuration", 'main')
+                logger.info('Messaging: > Config data for r/{} reverted.'.format(relevant_subreddit))
 
         elif 'query' in msg_subject:
             # This fetches the operations that have been performed
@@ -1797,7 +1823,7 @@ def main_messaging():
             if msg_author == AUTH.creator:
                 subreddit_check = None
             else:
-                subreddit_check = str(new_subreddit)
+                subreddit_check = str(relevant_subreddit)
             operations_info = main_query_operations(extracted_ids, subreddit_check)
             if operations_info:
                 op_reply = operations_info
@@ -1805,12 +1831,12 @@ def main_messaging():
                 op_reply = str(MSG_MOD_QUERY_NONE)
             message.reply(op_reply + BOT_DISCLAIMER.format(subreddit_check))
             logger.info('Messaging: Sent query operations data for `{}` '
-                        'to r/{}.'.format(extracted_ids, new_subreddit))
+                        'to r/{}.'.format(extracted_ids, relevant_subreddit))
 
         elif removal_subject in msg_subject:
             # Artemis was removed as a mod from a subreddit.
             # Delete from the monitored database.
-            logger.info("Messaging: New demod message from r/{}.".format(new_subreddit))
+            logger.info("Messaging: New demod message from r/{}.".format(relevant_subreddit))
 
             # Verification check to make sure it's the right one.
             # This prevents theoretical abuse of say, by a subreddit
@@ -1823,22 +1849,22 @@ def main_messaging():
                 continue
 
             # If the subreddits match, then we can process the removal.
-            if removed_subreddit == new_subreddit:
+            if removed_subreddit == relevant_subreddit:
                 # Update the history with the removal.
-                relevant_extended = database.extended_retrieve(new_subreddit)
+                relevant_extended = database.extended_retrieve(relevant_subreddit)
                 relevant_extended['removal_id'] = message.id
                 relevant_extended['removal_utc'] = int(message.created_utc)
-                wikipage_edit_history("remove", {new_subreddit: relevant_extended})
+                wikipage_edit_history("remove", {relevant_subreddit: relevant_extended})
 
                 # Delete the subreddit from the monitored list.
-                database.subreddit_delete(new_subreddit)
-                message.reply(MSG_MOD_LEAVE.format(new_subreddit)
-                              + BOT_DISCLAIMER.format(new_subreddit))
-                database.counter_updater(new_subreddit, "Removed as moderator", "main")
+                database.subreddit_delete(relevant_subreddit)
+                message.reply(MSG_MOD_LEAVE.format(relevant_subreddit)
+                              + BOT_DISCLAIMER.format(relevant_subreddit))
+                database.counter_updater(relevant_subreddit, "Removed as moderator", "main")
                 logger.info("Messaging: > Sent demod confirmation reply to moderators.")
             else:
                 logger.error('Messaging: > Demod message is for r/{} '
-                             'but was sent from r/{}.'.format(removed_subreddit, new_subreddit))
+                             'but was sent from r/{}.'.format(removed_subreddit, relevant_subreddit))
                 continue
 
     return
@@ -2164,49 +2190,56 @@ def main_get_submissions(statistics_mode=False):
 
 # This is the regular loop for Artemis, running main functions in
 # sequence while taking a `SETTINGS.wait` break in between.
-try:
-    while True:
-        try:
-            print('')
-            logger.info("------- Isochronism {:,} START.".format(ISOCHRONISMS))
+if __name__ == "__main__":
+    try:
+        while True:
+            try:
+                print('')
+                logger.info("------- Isochronism {:,} START.".format(ISOCHRONISMS))
 
-            # Every `post_frequency_cycles` recheck the frequency of
-            # posts that come in to moderated subreddits, and check the
-            # moderated subreddits' integrity.
-            if not ISOCHRONISMS % SETTINGS.post_frequency_cycles and ISOCHRONISMS != 0:
-                connection.get_posts_frequency()
-                main_monitored_integrity_checker()
-            # Clean up the database and truncate the logs and processed
-            # posts every `post_frequency_cycles` times 20.
-            if not ISOCHRONISMS % (SETTINGS.post_frequency_cycles * 20) and ISOCHRONISMS != 0:
-                logger.info("Cleaning up database...")
-                database.cleanup()
+                # Every `post_frequency_cycles` recheck the frequency of
+                # posts that come in to moderated subreddits, and check the
+                # moderated subreddits' integrity.
+                if not ISOCHRONISMS % SETTINGS.post_frequency_cycles and ISOCHRONISMS != 0:
+                    connection.get_posts_frequency()
+                    main_monitored_integrity_checker()
+                # Update the operational status widget every
+                # `post_frequency_cycles` cycles divided by 10.
+                if not ISOCHRONISMS % (SETTINGS.post_frequency_cycles / 10):
+                    widget_operational_status_updater()
+                # Clean up the database and truncate the logs and processed
+                # posts every `post_frequency_cycles` times 20.
+                if not ISOCHRONISMS % (SETTINGS.post_frequency_cycles * 20) and ISOCHRONISMS != 0:
+                    logger.info("Cleaning up database...")
+                    database.cleanup()
 
-            # Main runtime functions.
-            main_messaging()
-            main_get_submissions()
-            main_flair_checker()
+                # Main runtime functions.
+                main_messaging()
+                main_get_submissions()
+                main_flair_checker()
 
-            # Record memory usage at the end of an isochronism.
-            mem_num = psutil.Process(os.getpid()).memory_info().rss
-            mem_usage = "Memory usage: {:.2f} MB.".format(mem_num / (1024 * 1024))
-            logger.info("------- Isochronism {:,} COMPLETE. {}\n".format(ISOCHRONISMS, mem_usage))
-        except SystemExit:
-            logger.info('Manual user shutdown via message.')
-            sys.exit()
-        except Exception as e:
-            # Artemis encountered an error/exception, and if the error
-            # is not a common connection issue, log it in a separate
-            # file. Otherwise, merely record it in the events log.
-            error_entry = "\n### {} \n\n".format(e)
-            error_entry += traceback.format_exc()
-            logger.error(error_entry)
-            if not any(keyword in error_entry for keyword in SETTINGS.conn_errors):
-                main_error_log(error_entry)
+                # Record memory usage at the end of an isochronism.
+                mem_num = psutil.Process(os.getpid()).memory_info().rss
+                mem_usage = "Memory usage: {:.2f} MB.".format(mem_num / (1024 * 1024))
+                logger.info("------- Isochronism {:,} COMPLETE. {}\n".format(ISOCHRONISMS, mem_usage))
+            except SystemExit:
+                logger.info('Manual user shutdown via message.')
+                sys.exit()
+            except Exception as e:
+                # Artemis encountered an error/exception, and if the error
+                # is not a common connection issue, log it in a separate
+                # file. Otherwise, merely record it in the events log.
+                error_entry = "\n### {} \n\n".format(e)
+                error_entry += traceback.format_exc()
+                logger.error(error_entry)
+                if not any(keyword in error_entry for keyword in SETTINGS.conn_errors):
+                    main_error_log(error_entry)
 
-        ISOCHRONISMS += 1
-        time.sleep(SETTINGS.wait)
-except KeyboardInterrupt:
-    # Manual termination of the script with Ctrl-C.
-    logger.info('Manual user shutdown via keyboard.')
-    sys.exit()
+            ISOCHRONISMS += 1
+            time.sleep(SETTINGS.wait)
+    except KeyboardInterrupt:
+        # Manual termination of the script with Ctrl-C.
+        logger.info('Manual user shutdown via keyboard.')
+        database.CONN_MAIN.close()
+        database.CONN_STATS.close()
+        sys.exit()
