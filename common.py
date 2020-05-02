@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: UTF-8 -*-
+"""The common component contains the logger, error logging, and
+flair sanitizing functions that are used by both routines.
+"""
 import datetime
 import logging
 import re
