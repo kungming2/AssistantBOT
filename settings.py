@@ -18,6 +18,7 @@ FILE_PATHS = {'data_main': "/_data_main.db",
               "logs": "/_logs.md",
               "info": "/_info.yaml",
               'messages': "/_messages.md",
+              'messages_other': "/_messages_other.md",
               'start': '/_start.md',
               "settings": "/_settings.yaml"}
 for file_type in FILE_PATHS:
