@@ -965,7 +965,7 @@ def main_monitored_integrity_checker():
     return
 
 
-def main_messages_log(data_package):
+def main_messages_log(data_package, other=False):
     """This function writes to a messages log for messages which are
     either fuzzed, matched, or did not have a viable match. It's
     linked to `messaging_parse_flair_response` and will not necessarily
@@ -975,21 +975,31 @@ def main_messages_log(data_package):
     :param data_package: A dictionary of information passed from the
                          above function `messaging_parse_flair_response`
                          to append.
+    :param other: Whether or not to write to the `_messages_other` file,
+                  which is a more simple log.
     :return: `None`.
     """
-    # Format the line to add to the messages log.
+    # Format the line to add to the messages log for the regular
+    # routine, including the match types.
+    message_date = timekeeping.convert_to_string(time.time())
     line_to_insert = ("\n| {6} | **r/{0}** | `{1}` | [Link](https://redd.it/{1}) "
                       "| {2} | {3} | `{4}` | `{5}` |")
     line_to_insert = line_to_insert.format(data_package['subreddit'], data_package['id'],
                                            data_package['action'],
                                            data_package['message'].replace('\n', ' '),
                                            data_package['template_name'],
-                                           data_package['template_id'],
-                                           timekeeping.convert_to_string(time.time()))
+                                           data_package['template_id'], message_date)
 
-    # Open the file in append mode and add the new line.
-    with open(FILE_ADDRESS.messages, 'a+', encoding='utf-8') as f:
-        f.write(line_to_insert)
+    # Open the relevant file in append mode and add the new line.
+    if not other:
+        with open(FILE_ADDRESS.messages, 'a+', encoding='utf-8') as f:
+            f.write(line_to_insert)
+    else:
+        line_to_insert = "| {} | u/{} | `{}` | `{}` |"
+        line_to_insert = line_to_insert.format(message_date, data_package['author'],
+                                               data_package['id'], data_package['subject'])
+        with open(FILE_ADDRESS.messages_other, 'a+', encoding='utf-8') as f:
+            f.write(line_to_insert)
 
     return
 
@@ -1468,10 +1478,13 @@ def main_messaging():
 
         # If it's not a flair enforcement message, reject non-subreddit
         # messages. Flair enforcement replies to regular users were
-        # done earlier.
+        # done earlier. An example of such a message is a reply to a
+        # flair confirmation message.
         if msg_subreddit is None:
-            logger.info('Messaging: > Message "{}" from u/{} is not from a '
-                        'subreddit.'.format(msg_subject, msg_author))
+            logger.debug('Messaging: > Message "{}" from u/{} is not from a '
+                         'subreddit.'.format(msg_subject, msg_author))
+            data_package = {'subject': msg_subject, 'author': msg_author, 'id': message.id}
+            main_messages_log(data_package=data_package, other=True)
             continue
 
         # MODERATION-RELATED MESSAGING FUNCTIONS
@@ -1599,26 +1612,26 @@ def main_messaging():
                 # for people to select anyway.
                 database.monitored_subreddits_enforce_change(relevant_subreddit, False)
                 logger.info("Messaging: Subreddit has no flairs. Disabled flair enforcement.")
-                flair_enforce_mode = 'Off'
+                flair_mode = 'Off'
             else:
                 # We have access to X number of templates on this
                 # subreddit. Format the template section.
                 template_section = ("\nThis subreddit has **{} user-accessible post flairs** "
                                     "to enforce:\n\n".format(template_number))
                 template_section += subreddit_templates_collater(relevant_subreddit)
-                flair_enforce_mode = connection.monitored_subreddits_enforce_mode(relevant_subreddit)
+                flair_mode = connection.monitored_subreddits_enforce_mode(relevant_subreddit)
 
             # Format the reply to the subreddit, and confirm the invite.
             body = MSG_MOD_INIT_ACCEPT.format(relevant_subreddit, mode_component, template_section,
                                               messaging_component, minimum_section,
-                                              flair_enforce_mode)
+                                              flair_mode)
             message.reply(body + BOT_DISCLAIMER.format(relevant_subreddit))
             logger.info("Messaging: Sent confirmation reply. Set to `{}` mode.".format(mode))
 
             # If the flair enforce state is `On`, send an example
             # message as a new message to modmail.
             if database.monitored_subreddits_enforce_status(relevant_subreddit):
-                example_text = "*Should your subreddit choose to enforce post flairs*:\n\n"
+                example_text = "*Should your subreddit choose to enforce post flairs:*\n\n"
                 example_text += messaging_example_collater(msg_subreddit)
                 example_subject = ("[Artemis] Example Flair Enforcement Message "
                                    "for r/{}".format(relevant_subreddit))
@@ -1662,7 +1675,7 @@ def main_messaging():
                         '\n\n* `{}` mode\n\n> *{}*\n\n> {}')
                 info = info.format(relevant_subreddit, msg_subreddit.subscribers,
                                    timekeeping.convert_to_string(msg_subreddit.created_utc),
-                                   flair_enforce_mode, msg_subreddit.title,
+                                   flair_mode, msg_subreddit.title,
                                    subreddit_about.replace("\n", "\n> "))
 
                 # If the subreddit is public, add a comment and sticky.
@@ -1799,7 +1812,8 @@ def main_messaging():
                 message.reply(CONFIG_REVERT.format(relevant_subreddit)
                               + BOT_DISCLAIMER.format(relevant_subreddit))
                 database.counter_updater(relevant_subreddit, "Reverted configuration", 'main')
-                logger.info('Messaging: > Config data for r/{} reverted.'.format(relevant_subreddit))
+                logger.info('Messaging: > Config data for r/{} '
+                            'reverted.'.format(relevant_subreddit))
 
         elif 'query' in msg_subject:
             # This fetches the operations that have been performed
@@ -1863,8 +1877,8 @@ def main_messaging():
                 database.counter_updater(relevant_subreddit, "Removed as moderator", "main")
                 logger.info("Messaging: > Sent demod confirmation reply to moderators.")
             else:
-                logger.error('Messaging: > Demod message is for r/{} '
-                             'but was sent from r/{}.'.format(removed_subreddit, relevant_subreddit))
+                logger.error('Messaging: > Demod message is for r/{} but was sent '
+                             'from r/{}.'.format(removed_subreddit, relevant_subreddit))
                 continue
 
     return
@@ -2198,16 +2212,16 @@ if __name__ == "__main__":
                 logger.info("------- Isochronism {:,} START.".format(ISOCHRONISMS))
 
                 # Every `post_frequency_cycles` recheck the frequency of
-                # posts that come in to moderated subreddits, and check the
-                # moderated subreddits' integrity.
+                # posts that come in to moderated subreddits, and check
+                # the moderated subreddits' integrity.
                 if not ISOCHRONISMS % SETTINGS.post_frequency_cycles and ISOCHRONISMS != 0:
                     connection.get_posts_frequency()
                     main_monitored_integrity_checker()
                 # Update the operational status widget every
-                # `post_frequency_cycles` cycles divided by 10.
-                if not ISOCHRONISMS % (SETTINGS.post_frequency_cycles / 10):
+                # `post_frequency_cycles` cycles divided by 25.
+                if not ISOCHRONISMS % (SETTINGS.post_frequency_cycles / 25):
                     widget_operational_status_updater()
-                # Clean up the database and truncate the logs and processed
+                # Clean up the database and truncate the logs and
                 # posts every `post_frequency_cycles` times 20.
                 if not ISOCHRONISMS % (SETTINGS.post_frequency_cycles * 20) and ISOCHRONISMS != 0:
                     logger.info("Cleaning up database...")
@@ -2221,14 +2235,16 @@ if __name__ == "__main__":
                 # Record memory usage at the end of an isochronism.
                 mem_num = psutil.Process(os.getpid()).memory_info().rss
                 mem_usage = "Memory usage: {:.2f} MB.".format(mem_num / (1024 * 1024))
-                logger.info("------- Isochronism {:,} COMPLETE. {}\n".format(ISOCHRONISMS, mem_usage))
+                logger.info("------- Isochronism {:,} COMPLETE. {}\n".format(ISOCHRONISMS,
+                                                                             mem_usage))
             except SystemExit:
                 logger.info('Manual user shutdown via message.')
                 sys.exit()
             except Exception as e:
-                # Artemis encountered an error/exception, and if the error
-                # is not a common connection issue, log it in a separate
-                # file. Otherwise, merely record it in the events log.
+                # Artemis encountered an error/exception, and if the
+                # error is not a common connection issue, log it in a
+                # separate file. Otherwise, merely record it in the
+                # events log.
                 error_entry = "\n### {} \n\n".format(e)
                 error_entry += traceback.format_exc()
                 logger.error(error_entry)
