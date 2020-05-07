@@ -165,7 +165,7 @@ MSG_MOD_QUERY_NONE = '''
 🤔 Unfortunately, there doesn't appear to be any valid data in my database from your query.
 '''
 MSG_MOD_LEAVE = '''
-👋 Artemis will no longer enforce flairs or gather statistics for r/{}. Have a good day!
+👋 Artemis will no longer be active on r/{}. Have a good day!
 '''
 # The following are
 MSG_USER_FLAIR_SUBJECT = "[Notification] ⚠️ Your post on r/{} needs a post flair!"
@@ -269,8 +269,8 @@ WIKIPAGE_TEMPLATE = '''
 GOODBYE_PHRASES = ['Adieu', 'Adiós', 'Au revoir', 'Best regards', 'Cheers', 'Ciao', 'Farewell',
                    'Goodbye', 'Hasta la vista', 'Have a fantastic day', 'Have a good one',
                    'Have a great day', 'Have a nice day', 'Keep it real', 'Live long and prosper',
-                   'Mahalo', 'Peace', 'Regards', 'Sayonara', 'So long',
-                   'Take care', 'Take it easy', 'Toodeloo', 'Tschüss']
+                   'Mahalo', 'Peace', 'Regards', 'Sayonara', 'So long', 'Stay healthy',
+                   'Stay safe', 'Take care', 'Take it easy', 'Toodeloo', 'Tschüss']
 # This is the default Artemis configuration as expressed in YAML.
 # In dictionary form it's rendered as:
 # {'flair_enforce_approve_posts': True,
