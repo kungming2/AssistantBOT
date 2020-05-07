@@ -494,9 +494,15 @@ def external_mail_alert():
 
 def external_database_splitter():
     """This function splits a monolithic `_data.db` Artemis Classic
-    database into two separate ones for use in 2.0 Juniper.
+    database into two separate ones for use in v2.0 Juniper. This is
+    local function that will eventually be deprecated but is included
+    for compatability purposes.
+
+    :return: `None`.
     """
-    # Define the location of the donor database file to split.
+    logger.info('External: Beginning database intercision...')
+
+    # Define the location of the donor pre-v2.0 database file to split.
     donor_db_address = FILE_ADDRESS.data_main.replace('data_main', 'data')
     conn_donor = sqlite3.connect(donor_db_address)
     cursor_donor = conn_donor.cursor()
@@ -522,23 +528,23 @@ def external_database_splitter():
         database.CURSOR_MAIN.execute("SELECT * FROM {}".format(table))
         result = database.CURSOR_MAIN.fetchone()
         if result:
-            print("Data already exists in main table `{}`. Skipping...".format(table))
+            logger.info("Data already exists in main table `{}`. Skipping...".format(table))
             continue
         command = "INSERT INTO {0} SELECT * from donor.{0}".format(table)
         database.CURSOR_MAIN.execute(command)
         database.CONN_MAIN.commit()
-        print("Completed copying main database table `{}`.".format(table))
+        logger.info("Completed copying main database table `{}`.".format(table))
     database.CURSOR_STATS.execute("ATTACH ? AS donor", (donor_db_address,))
     for table in stats_tables:
         database.CURSOR_STATS.execute("SELECT * FROM {}".format(table))
         result = database.CURSOR_STATS.fetchone()
         if result:
-            print("Data already exists in stats table `{}`. Skipping...".format(table))
+            logger.info("Data already exists in stats table `{}`. Skipping...".format(table))
             continue
         command = "INSERT INTO {0} SELECT * from donor.{0}".format(table)
         database.CURSOR_STATS.execute(command)
         database.CONN_STATS.commit()
-        print("Completed copying statistics database table `{}`.".format(table))
+        logger.info("Completed copying statistics database table `{}`.".format(table))
 
     # Deal with subreddit actions.
     actions_main = ['Exported takeout data', 'Flaired post', 'Removed as moderator',
@@ -558,7 +564,7 @@ def external_database_splitter():
             elif action in actions_stats:
                 subreddit_stats_actions[action] = actions_data[action]
             elif action not in actions_main and action not in actions_stats:
-                print("Error: Action `{}` on r/{} is not listed.".format(action, subreddit))
+                logger.info("Error: Action `{}` on r/{} is not listed.".format(action, subreddit))
 
         # Insert the actions into their respective tables.
         if subreddit_main_actions:
@@ -569,7 +575,7 @@ def external_database_splitter():
             database.CURSOR_STATS.execute('INSERT INTO subreddit_actions VALUES (?, ?)',
                                           (subreddit, str(subreddit_stats_actions)))
             database.CONN_STATS.commit()
-    print("Completed actions transfer.")
+    logger.info("External: Completed actions transfer.")
 
     # Now deal with the 'all' actions table. We duplicate this in the
     # sense that there are going to be one respective 'all' table per
@@ -591,7 +597,7 @@ def external_database_splitter():
         database.CURSOR_STATS.execute('INSERT INTO subreddit_actions VALUES (?, ?)',
                                       ('all', str(all_stats_actions)))
         database.CONN_STATS.commit()
-    print("Completed 'all' actions transfer.")
+    logger.info("External: Completed 'all' actions transfer.")
 
     return
 
