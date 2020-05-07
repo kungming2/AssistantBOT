@@ -34,23 +34,25 @@ CURSOR_MAIN = CONN_MAIN.cursor()
 def table_creator():
     """This function creates the tables in the databases if they do not
     already exist.
+
+    :return: `None`.
     """
-    # Parse the main database.
-    CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS monitored (subreddit text, "
-                        "flair_enforce integer, extended text);")
-    CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS posts_filtered (post_id text, "
-                        "post_created integer);")
+    # Parse and create the main database if necessary.
+    CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS monitored "
+                        "(subreddit text, flair_enforce integer, extended text);")
+    CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS posts_filtered "
+                        "(post_id text, post_created integer);")
     CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS posts_operations (id text, operations text);")
     CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS posts_processed (post_id text);")
-    CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS subreddit_actions (subreddit text, "
-                        "recorded_actions text);")
+    CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS subreddit_actions "
+                        "(subreddit text, recorded_actions text);")
     CONN_MAIN.commit()
 
-    # Parse the statistics database.
-    CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_actions (subreddit text, "
-                         "recorded_actions text);")
-    CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_activity (subreddit text, "
-                         "date text, activity text);")
+    # Parse and create the statistics database if necessary.
+    CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_actions "
+                         "(subreddit text, recorded_actions text);")
+    CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_activity "
+                         "(subreddit text, date text, activity text);")
     CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_stats_posts "
                          "(subreddit text, records text);")
     CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_subscribers_new "
@@ -811,7 +813,6 @@ def cleanup():
     """
     # How many lines of log entries we wish to preserve in the logs.
     lines_to_keep = int(SETTINGS.entries_to_keep / SETTINGS.lines_to_keep_divider)
-    updated_to_keep = int(SETTINGS.entries_to_keep / SETTINGS.updated_to_keep_divider)
     ops_to_keep = int(SETTINGS.entries_to_keep * SETTINGS.operations_to_keep_multiplier)
 
     # Access the `processed` database, order the posts by oldest first,
@@ -822,14 +823,6 @@ def cleanup():
     CONN_MAIN.commit()
     logger.info('Cleanup: Last {:,} processed database '
                 'entries kept.'.format(SETTINGS.entries_to_keep))
-
-    # Access the `updated` database, order the entries by their date,
-    # and then only keep the above number of entries.
-    delete_command = ("DELETE FROM subreddit_updated WHERE date NOT IN "
-                      "(SELECT date FROM subreddit_updated ORDER BY date DESC LIMIT ?)")
-    CURSOR_MAIN.execute(delete_command, (updated_to_keep,))
-    CONN_MAIN.commit()
-    logger.info('Cleanup: Last {:,} updated database entries kept.'.format(updated_to_keep))
 
     # Access the `operations` database, and order the entries by
     # oldest first.
@@ -851,6 +844,27 @@ def cleanup():
         with open(FILE_ADDRESS.logs, "w", encoding='utf-8') as f:
             f.write("\n".join(lines_entries))
         logger.info('Cleanup: Last {:,} log entries kept.'.format(lines_to_keep))
+
+    return
+
+
+def cleanup_updated():
+    """This function is called by the statistics routine to clean up the
+    `subreddit_updated` table, which records which subreddits have had
+    their statistics updated. Since that is a running number, it can
+    be cleared after several days' worth of entries.
+
+    :return: `None`.
+    """
+    updated_to_keep = int(SETTINGS.entries_to_keep / SETTINGS.updated_to_keep_divider)
+
+    # Access the `updated` database, order the entries by their date,
+    # and then only keep the above number of entries.
+    delete_command = ("DELETE FROM subreddit_updated WHERE date NOT IN "
+                      "(SELECT date FROM subreddit_updated ORDER BY date DESC LIMIT ?)")
+    CURSOR_STATS.execute(delete_command, (updated_to_keep,))
+    CONN_STATS.commit()
+    logger.info('Cleanup: Last {:,} updated database entries kept.'.format(updated_to_keep))
 
     return
 
