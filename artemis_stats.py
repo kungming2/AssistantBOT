@@ -334,7 +334,7 @@ def subreddit_traffic_retriever(subreddit_name):
         # Get month data and the current month as a YYYY-MM string.
         current_month = timekeeping.month_convert_to_string(time.time())
         current_month_dt = datetime.datetime.strptime(current_month, '%Y-%m').date()
-        previous_month = (current_month_dt + datetime.timedelta(-15)).strftime('%Y-%m')
+        prev_month = (current_month_dt + datetime.timedelta(-15)).strftime('%Y-%m')
 
         # Estimate the change.
         estimated_uniques = daily_data['estimated_uniques']
@@ -344,21 +344,22 @@ def subreddit_traffic_retriever(subreddit_name):
         # This will fail if the keys are not included in the dictionary
         # or if a variable for division is set to zero.
         try:
-            previous_uniques = traffic_dictionary[previous_month][0]
-            previous_pageviews = traffic_dictionary[previous_month][1]
+            previous_uniques = traffic_dictionary[prev_month][0]
+            previous_pageviews = traffic_dictionary[prev_month][1]
             uniques_diff = (estimated_uniques - previous_uniques)
             pageviews_diff = (estimated_pageviews - previous_pageviews)
             est_uniques_change = round((uniques_diff / previous_uniques) * 100, 2)
             est_pageviews_change = round((pageviews_diff / previous_pageviews) * 100, 2)
             ratio_raw = round(estimated_pageviews / estimated_uniques, 0)
             ratio_est_uniques_pageviews = "≈1:{}".format(int(ratio_raw))
-            x_ratio = 1 + (est_pageviews_change * .01)
+            x_ratio = 1 + (est_pageviews_change * .01)  # Est. ratio
 
             # Interpolate estimated number of posts and comments based
             # on the Pushshift data and the ratio we have for pageviews.
-            now_posts = int(correlated_data['submission'].get(current_month, "0").replace(',', ''))
+
+            now_posts = int(correlated_data['submission'].get(prev_month, "0").replace(',', ''))
             est_posts = "{:,.0f}".format(now_posts * x_ratio)
-            now_comments = int(correlated_data['comment'].get(current_month, "0").replace(',', ''))
+            now_comments = int(correlated_data['comment'].get(prev_month, "0").replace(',', ''))
             est_comments = "{:,.0f}".format(now_comments * x_ratio)
         except (KeyError, ZeroDivisionError):
             est_uniques_change = est_pageviews_change = ratio_est_uniques_pageviews = "---"
@@ -2727,6 +2728,12 @@ def wikipage_dashboard_collater(run_time=2.00):
     results = database.database_access("SELECT * FROM monitored", None, fetch_many=True)
     for line in results:
         community = line[0]
+        # Here's a check to make sure we don't include subreddits that
+        # were added during the statistics cycle.
+        if community not in list_of_subs:
+            continue
+
+        # Gather the attributes.
         extended_data = literal_eval(line[2])
         index[community] = index_num
         index_num += 1
@@ -3221,8 +3228,9 @@ def main_maintenance_daily():
                                   ('all', current_day))
     database.CONN_STATS.commit()
 
-    # Back up the relevant files.
+    # Back up the relevant files and cleanup excessive entries.
     main_backup_daily()
+    database.cleanup_updated()
 
     return
 
