@@ -982,22 +982,23 @@ def main_messages_log(data_package, other=False):
     # Format the line to add to the messages log for the regular
     # routine, including the match types.
     message_date = timekeeping.convert_to_string(time.time())
-    line_to_insert = ("\n| {6} | **r/{0}** | `{1}` | [Link](https://redd.it/{1}) "
-                      "| {2} | {3} | `{4}` | `{5}` |")
-    line_to_insert = line_to_insert.format(data_package['subreddit'], data_package['id'],
-                                           data_package['action'],
-                                           data_package['message'].replace('\n', ' '),
-                                           data_package['template_name'],
-                                           data_package['template_id'], message_date)
 
     # Open the relevant file in append mode and add the new line.
     if not other:
+        line_to_insert = ("\n| {6} | **r/{0}** | `{1}` | [Link](https://redd.it/{1}) "
+                          "| {2} | {3} | `{4}` | `{5}` |")
+        line_to_insert = line_to_insert.format(data_package['subreddit'], data_package['id'],
+                                               data_package['action'],
+                                               data_package['message'].replace('\n', ' '),
+                                               data_package['template_name'],
+                                               data_package['template_id'], message_date)
         with open(FILE_ADDRESS.messages, 'a+', encoding='utf-8') as f:
             f.write(line_to_insert)
     else:
-        line_to_insert = "| {} | u/{} | `{}` | `{}` |"
+        line_to_insert = "\n| {} | u/{} | `{}` | {} | {} |"
         line_to_insert = line_to_insert.format(message_date, data_package['author'],
-                                               data_package['id'], data_package['subject'])
+                                               data_package['id'], data_package['subject'],
+                                               data_package['message'].replace('\n', ' '))
         with open(FILE_ADDRESS.messages_other, 'a+', encoding='utf-8') as f:
             f.write(line_to_insert)
 
@@ -1483,7 +1484,8 @@ def main_messaging():
         if msg_subreddit is None:
             logger.debug('Messaging: > Message "{}" from u/{} is not from a '
                          'subreddit.'.format(msg_subject, msg_author))
-            data_package = {'subject': msg_subject, 'author': msg_author, 'id': message.id}
+            data_package = {'subject': msg_subject, 'author': msg_author, 'id': message.id,
+                            'message': msg_body}
             main_messages_log(data_package=data_package, other=True)
             continue
 
@@ -1724,7 +1726,15 @@ def main_messaging():
             database.monitored_subreddits_enforce_change(relevant_subreddit, True)
 
             # Add the example flair enforcement text as well.
+            # Also check to see if there are *actually* public flairs
+            # available now. If there aren't any, append a header
+            # letting the mods know.
+            available_templates = subreddit_templates_retrieve(msg_subreddit)
             example_text = messaging_example_collater(msg_subreddit)
+            if not len(available_templates):
+                warning_header = MSG_MOD_INIT_NO_FLAIRS.rsplit('\n', 3)[0]
+                example_text = "*Please note:*\n\n{}\n\n---\n\n{}".format(warning_header,
+                                                                          example_text)
             message_body = "{}\n\n{}".format(MSG_MOD_RESP_ENABLE.format(relevant_subreddit),
                                              example_text)
             message.reply(message_body)
