@@ -356,11 +356,19 @@ def subreddit_traffic_retriever(subreddit_name):
 
             # Interpolate estimated number of posts and comments based
             # on the Pushshift data and the ratio we have for pageviews.
+            now_posts = correlated_data['submission'].get(prev_month, "0").replace(',', '')
+            if now_posts != "N/A":
+                now_posts = int(now_posts)
+                est_posts = "{:,.0f}".format(now_posts * x_ratio)
+            else:
+                est_posts = "N/A"
 
-            now_posts = int(correlated_data['submission'].get(prev_month, "0").replace(',', ''))
-            est_posts = "{:,.0f}".format(now_posts * x_ratio)
-            now_comments = int(correlated_data['comment'].get(prev_month, "0").replace(',', ''))
-            est_comments = "{:,.0f}".format(now_comments * x_ratio)
+            now_comments = correlated_data['comment'].get(prev_month, "0").replace(',', '')
+            if now_comments != "N/A":
+                now_comments = int(now_comments)
+                est_comments = "{:,.0f}".format(now_comments * x_ratio)
+            else:
+                est_comments = "N/A"
         except (KeyError, ZeroDivisionError):
             est_uniques_change = est_pageviews_change = ratio_est_uniques_pageviews = "---"
             est_posts = est_comments = "N/A"
@@ -1216,7 +1224,7 @@ def subreddit_top_collater(subreddit_name, month_string, last_month_mode=False):
 
     # Get the current month. We don't want to save the data if it is in
     # the current month, which is not over.
-    current_month = timekeeping.convert_to_string(time.time())
+    current_month = timekeeping.month_convert_to_string(time.time())
     score_sorted = []
     formatted_lines = []
     line_template = "* `{:+}` [{}]({}), posted by u/{} on {}"
@@ -1295,7 +1303,7 @@ def subreddit_pushshift_time_authors_retriever(subreddit_name, start_time, end_t
     specific_month = start_time.rsplit('-', 1)[0]
     start_time = timekeeping.convert_to_unix(start_time)
     end_time = timekeeping.convert_to_unix(end_time)
-    current_month = timekeeping.convert_to_string(time.time())
+    current_month = timekeeping.month_convert_to_string(time.time())
     activity_index = "authors_{}".format(search_type)
 
     # Check the database first.
@@ -1415,7 +1423,7 @@ def subreddit_pushshift_activity_retriever(subreddit_name, start_time, end_time,
     specific_month = start_time.rsplit('-', 1)[0]
     start_time = timekeeping.convert_to_unix(start_time)
     end_time = timekeeping.convert_to_unix(end_time) + 86399
-    current_month = timekeeping.convert_to_string(time.time())
+    current_month = timekeeping.month_convert_to_string(time.time())
     activity_index = "activity_{}".format(search_type)
 
     # Check the database first.
@@ -1841,6 +1849,7 @@ def subreddit_statistics_retriever(subreddit_name):
         # First we get the Pushshift activity data. How many
         # submissions/comments per day, most active days, etc.
         search_types = ['submission', 'comment']
+
         for object_type in search_types:
             supplementary_data.append(subreddit_pushshift_activity_retriever(subreddit_name,
                                                                              first_day, last_day,
