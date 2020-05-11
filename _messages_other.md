@@ -1,2 +1,2 @@
-| Date | Author | Message ID | Subject |
-|------|--------|------------|---------|
+| Date | Author | Message ID | Subject | Message |
+|------|--------|------------|---------|---------|
