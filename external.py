@@ -99,8 +99,8 @@ def monitor_last_log_checker():
 
     for log in reddit.subreddit('mod').mod.log(limit=1, mod=AUTH.username[:12]):
         item_elapsed = round(time.time() - log.created_utc, 2)
-        log_entry = ("Last main action: `{}` performed on r/{} "
-                     "{:,.2f} seconds ago.".format(log.action, log.subreddit, item_elapsed))
+        log_entry = ("    * **Last main action**: `{}` performed on "
+                     "r/{}.".format(log.action, log.subreddit, item_elapsed))
 
     return item_elapsed, log_entry
 
@@ -163,15 +163,15 @@ def monitor_main():
             last_elapsed, last_main_log_msg = monitor_last_log_checker()
 
             # Message my creator if the date is not recorded.
-            msg = ("Last [log entry](https://www.reddit.com/r/AssistantBOT/about/log)"
-                   " in r/AssistantBOT was recorded {} minutes ago on {}. Current "
+            msg = ("* **Last [log entry](https://www.reddit.com/r/AssistantBOT/about/log)"
+                   " in r/AssistantBOT**: Recorded {} minutes ago on {}. Current "
                    "minimum interval is {} minutes.".format(time_diff_mins, current_date,
                                                             SETTINGS.monitor_time_interval))
 
             # If the last actual mod action is longer than our interval
             # message my creator.
             if last_elapsed >= SETTINGS.monitor_time_interval * 60:
-                main_log_chunk = ("\n\nThe last main log item was recorded {:,.2f} minutes ago."
+                main_log_chunk = ("\n\n* **Last main action**: Recorded {:,.2f} minutes ago."
                                   "\n\n{}".format(last_elapsed / 60, last_main_log_msg))
                 reddit.redditor(AUTH.creator).message('Artemis may be down.', msg + main_log_chunk)
                 logger.info("Monitor: Messaged creator about possible downtime.")
