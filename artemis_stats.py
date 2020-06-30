@@ -2766,10 +2766,12 @@ def wikipage_dashboard_collater(run_time=2.00):
             last_subscribers = 0
 
         # Format the lines.
-        formatted_lines.append(template.format(subreddit, last_subscribers, index[subreddit],
-                                               created_dates[subreddit], addition_dates[subreddit],
-                                               advanced[subreddit]))
-        total_subscribers.append(last_subscribers)
+        if subreddit in index:
+            formatted_lines.append(template.format(subreddit, last_subscribers, index[subreddit],
+                                                   created_dates[subreddit],
+                                                   addition_dates[subreddit],
+                                                   advanced[subreddit]))
+            total_subscribers.append(last_subscribers)
 
     # Format the main body and the table's footer.
     header = ("# Artemis Dashboard ([Config]"
@@ -3507,12 +3509,12 @@ def main_timer(manual_start=False):
         end_process_time = time.time()
         elapsed_process_time = (end_process_time - start_time) / 60
 
-        # Update the dashboard and finalize the widgets in the sidebar.
-        wikipage_dashboard_collater(run_time=elapsed_process_time)
+        # Finalize the widgets in the sidebar and update dashboard.
         action_data = wikipage_get_all_actions()
         widget_thread = Thread(target=widget_updater,
                                args=(action_data,))
         widget_thread.start()
+        wikipage_dashboard_collater(run_time=elapsed_process_time)
 
     return
 
