@@ -101,6 +101,11 @@ def wikipage_config(subreddit_name):
 
     # Check moderator permissions.
     current_permissions = connection.obtain_mod_permissions(subreddit_name)[1]
+    if not current_permissions:
+        logger.info("Wikipage Config: Not a moderator "
+                    "of r/{}.".format(subreddit_name))
+        error = "Artemis is not a moderator of this subreddit."
+        return False, error
     if 'wiki' not in current_permissions and 'all' not in current_permissions:
         logger.info("Wikipage Config: Insufficient mod permissions to edit "
                     "wiki config on r/{}.".format(subreddit_name))
@@ -166,6 +171,13 @@ def wikipage_config(subreddit_name):
         # mandatory on AutoModerator configuration pages.
         error = ("There was an error with the page's YAML syntax. "
                  "Please make sure there are no `---` lines.")
+        return False, error
+    except yaml.scanner.ScannerError:
+        # Encountered an error in formatting. This can happen if the
+        # indentation is faulty or invalid.
+        error = ("There was an error with the page's YAML syntax. "
+                 "Please make sure that all indents are *four* spaces, "
+                 "and that there are spaces after each colon `:`.")
         return False, error
     logger.info('Wikipage Config: Configuration data for '
                 'r/{} is {}.'.format(subreddit_name, subreddit_config_data))
@@ -761,9 +773,14 @@ def messaging_op_approved(subreddit_name, praw_submission, strict_mode=True, mod
         body += BOT_DISCLAIMER.replace('Artemis', name_to_use).format(post_subreddit)
 
         # Send the message.
-        reddit.redditor(post_author).message(subject_line, body)
-        logger.info("Flair Checker: > Sent a message to u/{} about post `{}`.".format(post_author,
-                                                                                      post_id))
+        try:
+            reddit.redditor(post_author).message(subject_line, body)
+            logger.info("Flair Checker: > Sent a message to u/{} "
+                        "about post `{}`.".format(post_author, post_id))
+        except praw.exceptions.APIException:
+            # NOT_WHITELISTED_BY_USER_MESSAGE, see
+            # https://redd.it/h17rgd for more information.
+            pass
 
         # Remove the post from database now that it's been flaired.
         database.delete_filtered_post(post_id)
@@ -1521,6 +1538,8 @@ def main_messaging():
                 # This subreddit is quarantined; message my creator.
                 messaging_send_creator(relevant_subreddit, "forbidden",
                                        "View it at r/{}.".format(relevant_subreddit))
+                # Also reply to the relevant subreddit.
+                message.reply(MSG_MOD_INIT_QUARANTINED)
                 continue
             except prawcore.exceptions.NotFound:
                 # Error fetching the subscriber count.
@@ -1729,7 +1748,7 @@ def main_messaging():
             # Also check to see if there are *actually* public flairs
             # available now. If there aren't any, append a header
             # letting the mods know.
-            available_templates = subreddit_templates_retrieve(msg_subreddit)
+            available_templates = subreddit_templates_retrieve(msg_subreddit.display_name)
             example_text = messaging_example_collater(msg_subreddit)
             if not len(available_templates):
                 warning_header = MSG_MOD_INIT_NO_FLAIRS.rsplit('\n', 3)[0]
@@ -2242,11 +2261,15 @@ if __name__ == "__main__":
                 main_get_submissions()
                 main_flair_checker()
 
+                # Record API usage limit.
+                probe = reddit.redditor(AUTH.username).created_utc
+                used_calls = reddit.auth.limits['used']
+
                 # Record memory usage at the end of an isochronism.
                 mem_num = psutil.Process(os.getpid()).memory_info().rss
                 mem_usage = "Memory usage: {:.2f} MB.".format(mem_num / (1024 * 1024))
-                logger.info("------- Isochronism {:,} COMPLETE. {}\n".format(ISOCHRONISMS,
-                                                                             mem_usage))
+                logger.info("------- Isochronism {:,} COMPLETE. Calls used: {}. "
+                            "{}\n".format(ISOCHRONISMS, used_calls, mem_usage))
             except SystemExit:
                 logger.info('Manual user shutdown via message.')
                 sys.exit()
