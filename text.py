@@ -65,6 +65,15 @@ profiles/profile-moderation-tools) and Artemis is therefore unusable on them.
 
 If this is in error, please make a comment on r/AssistantBOT with this subreddit's name. Thanks!
 """
+MSG_MOD_INIT_QUARANTINED = '''
+☣️ It appears that this subreddit may be a [quarantined community]\
+(https://www.reddithelp.com/en/categories/rules-reporting/account-and-community-restrictions\
+/quarantined-subreddits). Unfortunately, Reddit explicitly makes it difficult, if not impossible, \
+to [access data about quarantined communities through its API](https://redd.it/3fx3gt). \
+Consequently, Artemis is not able to assist quarantined communities.
+
+We apologize for the inconvenience.
+'''
 MSG_MOD_INIT_MINIMUM = """
 ⏸️ This subreddit currently has fewer than {0} subscribers, so I've paused statistics \
 gathering for now. I will automatically resume statistics gathering once it reaches that \
@@ -266,11 +275,14 @@ WIKIPAGE_TEMPLATE = '''
 '''
 # This is a list of goodbye phrases.
 # Artemis chooses a random one when sending a message.
-GOODBYE_PHRASES = ['Adieu', 'Adiós', 'Au revoir', 'Best regards', 'Cheers', 'Ciao', 'Farewell',
-                   'Goodbye', 'Hasta la vista', 'Have a fantastic day', 'Have a good one',
-                   'Have a great day', 'Have a nice day', 'Keep it real', 'Live long and prosper',
-                   'Mahalo', 'Peace', 'Regards', 'Sayonara', 'So long', 'Stay healthy',
-                   'Stay safe', 'Take care', 'Take it easy', 'Toodeloo', 'Tschüss']
+GOODBYE_PHRASES = ['Adieu', 'Adiós', 'All the best', 'Au revoir', 'Best regards', 'Cheers', 'Ciao',
+                   'Farewell', 'Goodbye', 'Hasta la vista', 'Have a fantastic day',
+                   'Have a good one', 'Have a great day', 'Have a nice day',
+                   'I remain your faithful servant', 'Keep it real', 'Live long and prosper',
+                   'Mahalo', 'May the odds be ever in your favor', 'Namaste', 'Peace', 'Regards',
+                   'Sayonara', 'See ya', 'So long', 'Stay awesome', 'Stay healthy',
+                   'Stay safe', 'Stay well', 'Take care', 'Take it easy', 'To infinity and beyond',
+                   'Toodeloo', 'Tschüss', 'Until next time']
 # This is the default Artemis configuration as expressed in YAML.
 # In dictionary form it's rendered as:
 # {'flair_enforce_approve_posts': True,
