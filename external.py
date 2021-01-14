@@ -5,8 +5,7 @@ well as a monitor routine that is meant to be run separately to audit
 the uptime of the bot.
 """
 import datetime
-import praw
-import prawcore
+import os
 import sqlite3
 import sys
 import time
@@ -14,7 +13,10 @@ from ast import literal_eval
 from calendar import monthrange
 from collections import Counter
 from random import sample
+from shutil import copy
 
+import praw
+import prawcore
 import yaml
 
 import artemis_stats
@@ -22,12 +24,13 @@ import connection
 import database
 import timekeeping
 from common import logger
-from settings import AUTH, FILE_ADDRESS, SETTINGS
+from settings import AUTH, FILE_ADDRESS, SETTINGS, SOURCE_FOLDER
 
 """LOGGING IN"""
 
 USER_AGENT = "Artemis Monitor, a service routine for this account."
-connection.login(False)
+
+connection.login(posts_frequency=False)
 reddit = connection.reddit
 reddit_helper = connection.reddit_helper
 reddit_monitor = praw.Reddit(client_id=AUTH.monitor_app_id,
@@ -197,9 +200,65 @@ def monitor_main():
 """TESTING / EXTERNAL FUNCTIONS"""
 
 
+def external_backup_daily():
+    """This function backs up the database files to a secure Box account
+    and a local target. It does not back up the credentials file or the
+    main Artemis file itself. This is called by a cron job daily.
+
+    :return: Nothing.
+    """
+    current_day = timekeeping.convert_to_string(time.time())
+
+    # Iterate over the backup paths that are listed.
+    for backup_path in [AUTH.backup_folder, AUTH.backup_folder_2]:
+        if not os.path.isdir(backup_path):
+            # If the web disk or the physical disk is not mounted,
+            # record an error.
+            logger.error("Backup: It appears that the backup disk "
+                         "at {} is not mounted.".format(backup_path))
+        else:
+            # Mounted successfully. Create a new folder in the
+            # YYYY-MM-DD format.
+            new_folder_path = "{}/{}".format(backup_path, current_day)
+
+            # If there already is a folder with today's date, do not
+            # do anything. Otherwise, start the backup process.
+            if os.path.isdir(new_folder_path):
+                logger.info("Backup: Backup folder for {} "
+                            "already exists at {}.".format(current_day, backup_path))
+            else:
+                # Create the new target folder and get the list of files
+                # from the home folder.
+                os.makedirs(new_folder_path)
+                source_files = os.listdir(SOURCE_FOLDER)
+
+                # We don't need to back up files with these file name
+                # extensions. Exclude them from backup.
+                xc = ['journal', '.json', '.out', '.py', '.yaml']
+                source_files = [x for x in source_files if not any(keyword in x for keyword in xc)]
+
+                # Iterate over each file and back it up.
+                for file_name in source_files:
+
+                    # Get the full path of the file.
+                    full_file_name = os.path.join(SOURCE_FOLDER, file_name)
+
+                    # If the file exists, try backing it up. If there
+                    # happens to be a copying error, skip the file.
+                    if os.path.isfile(full_file_name):
+                        try:
+                            copy(full_file_name, new_folder_path)
+                        except OSError:
+                            pass
+
+                logger.info('Backup: Completed for {}.'.format(current_day))
+
+    return
+
+
 def external_random_test(query):
     """ Fetch initialization information for a random selection of
-    non-local subeddits. This is used to test the process and procedure
+    non-local subreddits. This is used to test the process and procedure
     of adding new subreddits to the bot's monitored database.
     """
     already_monitored = database.monitored_subreddits_retrieve()
@@ -313,6 +372,7 @@ def external_artemis_monthly_statistics(month_string):
 
     # Get the UNIX times that bound our month.
     year, month = month_string.split('-')
+    first_day = month_string + '-01'
     start_time = timekeeping.convert_to_unix(month_string + '-01')
     end_time = "{}-{}".format(month_string, monthrange(int(year), int(month))[1])
     end_time = timekeeping.convert_to_unix(end_time) + 86399
@@ -329,6 +389,10 @@ def external_artemis_monthly_statistics(month_string):
             subreddit_object = reddit.subreddit(subreddit)
             subreddit_type = subreddit_object.subreddit_type
         except prawcore.exceptions.NotFound:
+            logger.info("Subreddit r/{} appears to be banned.".format(subreddit))
+            continue
+        except prawcore.exceptions.Forbidden:
+            logger.info("Subreddit r/{} appears to be private.".format(subreddit))
             continue
 
         if subreddit not in current_subreddits:
@@ -356,8 +420,8 @@ def external_artemis_monthly_statistics(month_string):
     # Combine the actions together.
     all_days = list(set(list(actions_s.keys()) + list(actions_m.keys())))
     all_days.sort()
-    print(all_days)
-    for day in all_days:
+    subset_days = all_days[all_days.index(first_day):]
+    for day in subset_days:
         actions[day] = dict(Counter(actions_s[day]) + Counter(actions_m[day]))
 
     # Iterate over the days and actions in the actions dictionaries.
@@ -629,7 +693,7 @@ if len(sys.argv) > 1:
         else:
             external_local_test(l_mode)
     elif specific_mode == "userflair":
-        userflair_subs = input("\n====\n\nEnter a list of subreddits for userflair statistcs: ")
+        userflair_subs = input("\n====\n\nEnter a list of subreddits for userflair statistics: ")
         userflair_subs_list = userflair_subs.split(',')
         userflair_subs_list = [x.strip() for x in userflair_subs_list]
         artemis_stats.wikipage_userflair_editor(userflair_subs_list)
@@ -640,20 +704,18 @@ if len(sys.argv) > 1:
     elif specific_mode == 'stats' or specific_mode == 'statistics':
         month_stats = input("\n====\n\nEnter the month in YYYY-MM format or 'x' to exit: ").strip()
         print(external_artemis_monthly_statistics(month_stats))
+    elif specific_mode == "setup":
+        instance_to_set = input("\n====\n\nEnter a number of an instance to set up its databases: ")
+        instance_to_set = int(instance_to_set)
+        database.define_database(instance_to_set)
+    # The last two are cron jobs.
     elif specific_mode == 'monitor':
+        # noinspection PyBroadException
+        # */15 * * * *
         try:
-            # Run the monitoring code.
-            while True:
-                # noinspection PyBroadException
-                try:
-                    monitor_main()
-                except Exception as e:
-                    print(Exception)
-
-                sleep_time = monitor_seconds_till_next_hour()
-                time_left = divmod(sleep_time, 60)
-                print('> Running again in {}:{}. \n'.format(time_left[0], time_left[1]))
-                time.sleep(sleep_time)
-        except KeyboardInterrupt:
-            logger.info('Manual user shutdown via keyboard.')
-            sys.exit()
+            monitor_main()
+        except Exception as e:
+            logger.error(Exception)
+    elif specific_mode == 'backup':
+        # 5 18 * * *
+        external_backup_daily()
