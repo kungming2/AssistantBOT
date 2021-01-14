@@ -2,6 +2,7 @@
 # -*- coding: UTF-8 -*-
 """The common component contains the logger, error logging, and
 flair sanitizing functions that are used by both routines.
+There are no functions that connect to Reddit in this component.
 """
 import datetime
 import logging
@@ -108,3 +109,17 @@ def flair_sanitizer(text_to_parse, change_case=True):
     text_to_parse = reg.sub('', text_to_parse).strip()
 
     return text_to_parse
+
+
+def markdown_escaper(input_text):
+    """Small function that escapes out special characters in Markdown
+    so they display as intended. Primarily intended for use in titles.
+    :param input_text: The text we want to work with.
+    :return: `input_text`, but with the characters escaped.
+    """
+    characters_to_replace = ['[', ']', '`', '*', '_']
+
+    for character in characters_to_replace:
+        input_text = input_text.replace(character, '\{}'.format(character))
+
+    return input_text
