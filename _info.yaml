@@ -1,7 +1,7 @@
 # -----
 # These are the credentials necessary for Artemis to access Reddit.
 # -----
-version_number: 2.0.9 Juniper
+version_number: 2.1.0 Katsura
 username: AssistantBOT
 password:
 app_id:
