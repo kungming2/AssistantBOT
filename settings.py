@@ -12,7 +12,8 @@ import yaml
 # They should all be in the same folder as the Python script itself.
 # These addresses are then converted into a object for usage.
 SOURCE_FOLDER = os.path.dirname(os.path.realpath(__file__))
-FILE_PATHS = {'data_main': "/_data_main.db",
+FILE_PATHS = {"auth": '/_auth.yaml',
+              'data_main': "/_data_main.db",
               'data_stats': "/_data_stats.db",
               'error': "/_error.md",
               "logs": "/_logs.md",
@@ -43,6 +44,19 @@ def load_information():
         settings_data = yaml.safe_load(f.read())
 
     return auth_data, settings_data
+
+
+def load_instances(instance_num=99):
+    """Function that loads specific authentication information for
+    specific Artemis instances, indexed by a number between 0-9.
+    The main (original) instance is given a unique number of 99.
+    The function defaults to the main instance if no number is
+    supplied.
+    """
+    with open(FILE_ADDRESS.auth, 'r', encoding='utf-8') as f:
+        instance_data = yaml.safe_load(f.read())
+
+    return instance_data['accounts'][instance_num]
 
 
 # Retrieve credentials data needed to log in from the YAML file.
