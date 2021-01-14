@@ -14,18 +14,48 @@ from settings import FILE_ADDRESS, SETTINGS
 from timekeeping import convert_to_string
 
 
+"""BASE DEFINITIONS"""
+
+CONN_STATS = sqlite3.connect(FILE_ADDRESS.data_stats)
+CURSOR_STATS = CONN_STATS.cursor()
+CONN_MAIN = sqlite3.connect(FILE_ADDRESS.data_main)
+CURSOR_MAIN = CONN_MAIN.cursor()
+
+
 """DATABASE DEFINITIONS"""
 
 
-# This connects Artemis with its main SQLite database file.
-CONN_STATS = sqlite3.connect(FILE_ADDRESS.data_stats)
-# CONN_STATS.execute("PRAGMA journal_mode=WAL;")
-CURSOR_STATS = CONN_STATS.cursor()
+def define_database(instance_num=99):
+    """This function connects to per-instance databases as needed
+    by the active instance.
 
-# This connects Artemis with its flair enforcement SQLite database file.
-CONN_MAIN = sqlite3.connect(FILE_ADDRESS.data_main)
-# CONN_MAIN.execute("PRAGMA journal_mode=WAL;")
-CURSOR_MAIN = CONN_MAIN.cursor()
+    :param instance_num: The Artemis instance to use.
+    :return:
+    """
+    global CONN_STATS
+    global CURSOR_STATS
+    global CONN_MAIN
+    global CURSOR_MAIN
+
+    if instance_num is 99:
+        stats_address = FILE_ADDRESS.data_stats
+        main_address = FILE_ADDRESS.data_main
+        logger.info("Define Database: Using default database.")
+    else:
+        stats_address = "{}{}.db".format(FILE_ADDRESS.data_stats[:-3], instance_num)
+        main_address = "{}{}.db".format(FILE_ADDRESS.data_main[:-3], instance_num)
+        logger.info("Define Database: Using database for instance {}.".format(instance_num))
+
+    # This connects Artemis with its statistics SQLite database file.
+    CONN_STATS = sqlite3.connect(stats_address)
+    CURSOR_STATS = CONN_STATS.cursor()
+
+    # This connects Artemis with its flair enforcement SQLite
+    # database file.
+    CONN_MAIN = sqlite3.connect(main_address)
+    CURSOR_MAIN = CONN_MAIN.cursor()
+
+    return
 
 
 """DATABASE CREATION"""
@@ -67,7 +97,8 @@ def table_creator():
 """DATABASE FUNCTIONS"""
 
 
-def database_access(command, data, retries=3, fetch_many=False):
+def database_access(command, data, cursor=None,
+                    retries=3, fetch_many=False):
     """This is a wrapper function that is used by functions that may be
     called by the statistics runtime on the MAIN database. A built-in
     function will wait if it encounters any lock.
@@ -75,25 +106,30 @@ def database_access(command, data, retries=3, fetch_many=False):
     :param command: The SQLite command to be run on the main database.
     :param data: The data package for the search query. `None` if none
                  is needed.
-    :param retries:
-    :param fetch_many:
+    :param cursor: A cursor object can be passed.
+    :param retries: The number of times the function will ask for data.
+    :param fetch_many: Whether to fetch just one result or many.
     :return:
     """
+    if cursor:
+        cursor_used = cursor
+    else:
+        cursor_used = CURSOR_MAIN
 
     for _ in range(retries):
         try:
             # If there's data to search for, include it. Otherwise, just
             # conduct a straight command.
             if data:
-                CURSOR_MAIN.execute(command, data)
+                cursor_used.execute(command, data)
             else:
-                CURSOR_MAIN.execute(command)
+                cursor_used.execute(command)
 
             # Choose whether or not to fetch many results or just one.
             if not fetch_many:
-                result = CURSOR_MAIN.fetchone()
+                result = cursor_used.fetchone()
             else:
-                result = CURSOR_MAIN.fetchall()
+                result = cursor_used.fetchall()
 
             # Ext early with the result if we have it.
             if result is not None:
@@ -754,6 +790,158 @@ def counter_collater(subreddit_name):
     return
 
 
+"""OTHER DATABASE TOOLS"""
+
+
+def migration_assistant(subreddit_name, source, target):
+    """This function takes information stored in one instance's database
+    and ports it over to a target database. The data is cleared from the
+    source database after the port.
+
+    :param subreddit_name: The subreddit we need to port data for.
+    :param source: The source instance number, expressed as an integer.
+    :param target: The target instance number, expressed as an integer.
+    :return:
+    """
+    main_data = {}
+    main_tables = ['monitored', 'subreddit_actions']
+    stats_data = {}
+    stats_tables = ['subreddit_actions', 'subreddit_stats_posts',
+                    'subreddit_subscribers_new', 'subreddit_traffic']
+
+    # Don't do anything if the two databases are intended
+    # to be the same.
+    if source == target:
+        return False
+
+    database_dictionary = {'source': {'instance': source},
+                           'target': {'instance': target}}
+
+    # Make connections and cursors and store them in a dictionary.
+    for database_type in database_dictionary:
+        instance_num = database_dictionary[database_type]['instance']
+        if instance_num is 99:
+            stats_address = FILE_ADDRESS.data_stats
+            main_address = FILE_ADDRESS.data_main
+        else:
+            stats_address = "{}{}.db".format(FILE_ADDRESS.data_stats[:-3], instance_num)
+            main_address = "{}{}.db".format(FILE_ADDRESS.data_main[:-3], instance_num)
+        conn_stats = sqlite3.connect(stats_address)
+        cursor_stats = conn_stats.cursor()
+        conn_main = sqlite3.connect(main_address)
+        cursor_main = conn_main.cursor()
+        database_dictionary[database_type] = {'instance': instance_num,
+                                              'conn_stats': conn_stats,
+                                              'cursor_stats': cursor_stats,
+                                              'conn_main': conn_main,
+                                              'cursor_main': cursor_main}
+
+    # Access the main database's information first.
+    # This consists of:
+    #     1. The monitored information (including extended data).
+    #     2. The subreddit's actions.
+    cursor_source_main = database_dictionary['source']['cursor_main']
+    conn_source_main = database_dictionary['source']['conn_main']
+    for table in main_tables:
+        query_command = "SELECT * FROM {} WHERE subreddit = '{}'".format(table, subreddit_name)
+        main_data[table] = database_access(query_command, data=None,
+                                           cursor=cursor_source_main, fetch_many=False)
+        logger.info('Migration Assistant: Data for r/{} retrieved '
+                    'from main table `{}`.'.format(subreddit_name, table))
+
+    # Access the statistics database's information next.
+    # This consists of almost all tables EXCEPT `subreddit_updated`.
+    cursor_source_stats = database_dictionary['source']['cursor_stats']
+    conn_source_stats = database_dictionary['source']['conn_stats']
+    for table in stats_tables:
+        query_command = "SELECT * FROM {} WHERE subreddit = '{}'".format(table, subreddit_name)
+        stats_data[table] = database_access(query_command, data=None,
+                                            cursor=cursor_source_stats, fetch_many=False)
+        logger.info('Migration Assistant: Data for r/{} retrieved '
+                    'from stats table `{}`.'.format(subreddit_name, table))
+    # Subreddit activity data is accessed and stored separately, as
+    # there are multiple lines. This returns a list of tuples.
+    activity_query = "SELECT * FROM subreddit_activity WHERE subreddit = ?"
+    stats_activity_data = database_access(activity_query, (subreddit_name,), cursor=cursor_source_stats,
+                                          fetch_many=True)
+
+    # Having obtained the data, write it to the target database.
+    cursor_target_main = database_dictionary['target']['cursor_main']
+    conn_target_main = database_dictionary['target']['conn_main']
+    # Insert main data.
+    for table in main_tables:
+        # Check if data already exists for this subreddit in the main.
+        query_command = "SELECT * FROM {} WHERE subreddit = '{}'".format(table, subreddit_name)
+        exist_check = database_access(query_command, data=None,
+                                      cursor=cursor_target_main, fetch_many=False)
+        if exist_check:
+            logger.info('Migration Assistant: Data for r/{} already exists in target '
+                        'main table `{}`. Skipped.'.format(subreddit_name, table))
+            continue
+        else:
+            payload = main_data[table]  # The actual data to insert.
+            if payload:
+                insert_command = "INSERT INTO {} VALUES {}".format(table, payload)
+                cursor_target_main.execute(insert_command)
+                conn_target_main.commit()
+                logger.info('Migration Assistant: Data inserted for r/{} '
+                            'into target main table `{}`.'.format(subreddit_name, table))
+    # Insert stats data.
+    cursor_target_stats = database_dictionary['target']['cursor_stats']
+    conn_target_stats = database_dictionary['target']['conn_stats']
+    for table in stats_tables:
+        # Check if data already exists for this subreddit in the main.
+        query_command = "SELECT * FROM {} WHERE subreddit = '{}'".format(table, subreddit_name)
+        exist_check = database_access(query_command, data=None,
+                                      cursor=cursor_target_stats, fetch_many=False)
+        if exist_check:
+            logger.info('Migration Assistant: Data for r/{} already exists in target '
+                        'stats table `{}`. Skipped.'.format(subreddit_name, table))
+            continue
+        else:
+            payload = stats_data[table]  # The actual data to insert.
+            if payload:
+                value_filler = "?, " * len(payload)
+                value_filler = value_filler[:-2].strip()
+                insert_command = "INSERT INTO {} VALUES ({})".format(table, value_filler)
+                cursor_target_stats.execute(insert_command, payload)
+                conn_target_stats.commit()
+                logger.info('Migration Assistant: Data inserted for r/{} '
+                            'into target stats table `{}`.'.format(subreddit_name, table))
+    # Insert stats activity data.
+    for line in stats_activity_data:
+        month = line[1]
+        activity_query = "SELECT * FROM subreddit_activity WHERE subreddit = ? AND date = ?"
+        exist_check = database_access(activity_query, data=(subreddit_name, month),
+                                      cursor=cursor_target_stats, fetch_many=False)
+        if exist_check:
+            logger.info('Migration Assistant: Data for r/{} already exists in '
+                        '`subreddit_activity` for month {}. Skipped.'.format(subreddit_name, month))
+            continue
+        else:
+            cursor_target_stats.execute('INSERT INTO subreddit_activity VALUES (?, ?, ?)', line)
+            conn_target_stats.commit()
+            logger.info('Migration Assistant: Data inserted for r/{} '
+                        'into `subreddit_activity` for month {}.'.format(subreddit_name, month))
+
+    # Delete the data from the source databases.
+    for table in main_tables:
+        delete_command = "DELETE FROM {} WHERE subreddit = ?".format(table)
+        cursor_source_main.execute(delete_command, (subreddit_name,))
+        conn_source_main.commit()
+        logger.info('Migration Assistant: Data removed for r/{} '
+                    'from source main table `{}`.'.format(subreddit_name, table))
+    stats_tables += ['subreddit_activity']  # Add `subreddit_activity`
+    for table in stats_tables:
+        delete_command = "DELETE FROM {} WHERE subreddit = ?".format(table)
+        cursor_source_stats.execute(delete_command, (subreddit_name,))
+        conn_source_stats.commit()
+        logger.info('Migration Assistant: Data removed for r/{} '
+                    'from source stats table `{}`.'.format(subreddit_name, table))
+
+    return
+
+
 def takeout(subreddit_name):
     """This function gets all the information about a subreddit and
     converts it to JSON to share with the moderators of a subreddit
@@ -869,4 +1057,5 @@ def cleanup_updated():
     return
 
 
+define_database()
 table_creator()  # Create the database tables if they do not exist.
