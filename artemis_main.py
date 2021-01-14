@@ -21,19 +21,12 @@ from rapidfuzz import process
 import connection
 import database
 import timekeeping
-from common import logger, main_error_log
+from common import logger, main_error_log, markdown_escaper
 from settings import AUTH, FILE_ADDRESS, SETTINGS
 from text import *
 
 # Number of regular top-level routine runs that have been made.
 ISOCHRONISMS = 0
-
-"""LOGGING IN"""
-
-connection.login()
-reddit = connection.reddit
-reddit_helper = connection.reddit_helper
-NUMBER_TO_FETCH = connection.NUMBER_TO_FETCH
 
 
 """WIDGET UPDATING FUNCTIONS"""
@@ -48,7 +41,7 @@ def widget_operational_status_updater():
     :return: `None`.
     """
     # Don't update this widget if it's being run on an alternate account
-    if AUTH.username != "AssistantBOT":
+    if INSTANCE != 99:
         return
 
     current_time = timekeeping.time_convert_to_string(time.time())
@@ -100,7 +93,7 @@ def wikipage_config(subreddit_name):
     permitted_tags = ['nsfw', 'oc', 'spoiler']
 
     # Check moderator permissions.
-    current_permissions = connection.obtain_mod_permissions(subreddit_name)[1]
+    current_permissions = connection.obtain_mod_permissions(subreddit_name, INSTANCE)[1]
     if not current_permissions:
         logger.info("Wikipage Config: Not a moderator "
                     "of r/{}.".format(subreddit_name))
@@ -139,7 +132,7 @@ def wikipage_config(subreddit_name):
         # Remove it from the public list and only let moderators see it.
         # Also add Artemis as a approved submitter/editor for the wiki.
         config_wikipage.mod.update(listed=False, permlevel=2)
-        config_wikipage.mod.add(AUTH.username)
+        config_wikipage.mod.add(USERNAME_REG)
         logger.info("Wikipage Config: Created new config wiki "
                     "page for r/{}.".format(subreddit_name))
 
@@ -151,6 +144,7 @@ def wikipage_config(subreddit_name):
     # A list of the default variables (which are keys).
     default_vs_keys = list(default_data.keys())
     default_vs_keys.sort()
+    # noinspection PyUnresolvedReferences
     try:
         # `subreddit_config_data` should be a dictionary from the sub
         # assuming the YAML parser is able to get it right.
@@ -264,17 +258,22 @@ def wikipage_config(subreddit_name):
     return True, None
 
 
-def wikipage_edit_history(action, data_package):
+def wikipage_access_history(action, data_package):
     """Function to save a record of a removed subreddit to the wiki.
 
-    :param action: A string, one of `readd` or `remove`. `remove` means
-                   that the subreddit will be entered on this history
-                   page. `readd` means that the subreddit, if it exists
-                   should be cleared from this history.
+    :param action: A string, one of `readd`, `remove`, or `read`.
+                   * `remove` means that the subreddit will be entered
+                      on this history page.
+                   * `readd` means that the subreddit, if it exists
+                      should be cleared from this history.
+                   * `read` just fetches the existing data as a
+                      dictionary.
     :param data_package: A dictionary indexed with a subreddit's
                          lowercase name and with the former extended
-                         data for it if the action is `remove`. If the
-                         action is `readd` then it will be a string.
+                         data for it if the action is `remove`.
+                         If the action is `readd` then it will be a
+                         string.
+                         If the action is `read`, `None` is fine.
     """
     # Access the history wikipage and load its data.
     history_wikipage = reddit.subreddit('translatorbot').wiki['artemis_history']
@@ -288,13 +287,15 @@ def wikipage_edit_history(action, data_package):
             del history_data[data_package]
         else:  # This subreddit was never in the history.
             return
+    elif action == 'read':
+        return history_data
 
     # Format the YAML code with indents for readability and edit.
     history_yaml = yaml.safe_dump(history_data)
     history_yaml = "    " + history_yaml.replace('\n', '\n    ')
     history_wikipage.edit(content=history_yaml,
                           reason='Updating with action `{}`.'.format(action))
-    logger.info('Remove to History: Saved `{}`, '
+    logger.info('Access History: Saved `{}`, '
                 'data `{}`, to history wikipage.'.format(action, data_package))
 
     return
@@ -692,7 +693,7 @@ def messaging_modlog_parser(praw_submission):
         # Here we check for flair edits done by moderators, while making
         # sure the flair edit was not done by the bot. Then append the
         # submission ID of the edited link to our list.
-        if str(item.mod).lower() != AUTH.username.lower():
+        if str(item.mod).lower() != USERNAME_REG.lower():
             flaired_by_other_mods.append(i_fullname[3:])
 
     # If the post was flaired by another mod, return `True`.
@@ -802,7 +803,7 @@ def messaging_example_collater(subreddit):
     template_header = "*Here's an example flair enforcement message for r/{}:*"
     template_header = template_header.format(subreddit.display_name)
     sub_templates = subreddit_templates_collater(new_subreddit)
-    current_permissions = connection.obtain_mod_permissions(new_subreddit)
+    current_permissions = connection.obtain_mod_permissions(new_subreddit, INSTANCE)
 
     # For the example, instead of putting a permalink to a post, we just
     # use the subreddit URL itself.
@@ -966,7 +967,7 @@ def main_monitored_integrity_checker():
     # Fetch the *live* list of moderated subreddits directly from
     # Reddit, including private ones. This needs to use the native
     # account.
-    mod_target = '/user/{}/moderated_subreddits'.format(AUTH.username)
+    mod_target = '/user/{}/moderated_subreddits'.format(USERNAME_REG)
     active_subreddits = [x['sr'].lower() for x in connection.reddit.get(mod_target)['data']]
 
     # Get only the subreddits that are recorded BUT not live.
@@ -976,6 +977,14 @@ def main_monitored_integrity_checker():
     # If there are extra ones we're not a mod of, remove them.
     if len(problematic_subreddits) > 0:
         for community in problematic_subreddits:
+
+            # Remove their information to the history page.
+            problematic_extended = database.extended_retrieve(community)
+            problematic_extended['removal_utc'] = int(time.time())
+            problematic_extended['instance'] = INSTANCE
+            wikipage_access_history('remove', problematic_extended)
+
+            # Delete the subreddit.
             database.subreddit_delete(community)
             logger.info('Integrity Checker: No longer mod of r/{}. Removed.'.format(community))
 
@@ -1012,6 +1021,12 @@ def main_messages_log(data_package, other=False):
         with open(FILE_ADDRESS.messages, 'a+', encoding='utf-8') as f:
             f.write(line_to_insert)
     else:
+        # Code an exception for any bots which constantly
+        # spams replies back. No need to record these interactions.
+        ignore_list = ['modnewsletter', 'reddit', 'redditcareresources', 'ytlinkerbot']
+        if data_package['author'].lower() in ignore_list:
+            return
+
         line_to_insert = "\n| {} | u/{} | `{}` | {} | {} |"
         line_to_insert = line_to_insert.format(message_date, data_package['author'],
                                                data_package['id'], data_package['subject'],
@@ -1228,7 +1243,7 @@ def main_post_approval(submission, template_id=None):
     # Check to see if the moderator who removed it is Artemis.
     # We don't want to override other mods.
     if moderator_removed is not None:
-        if moderator_removed != AUTH.username:
+        if moderator_removed != USERNAME_REG:
             # The moderator who removed this is not me. Don't restore.
             logger.debug('Post Approval: Post `{}` removed by mod u/{}.'.format(post_id,
                                                                                 moderator_removed))
@@ -1281,7 +1296,7 @@ def main_post_approval(submission, template_id=None):
     # If Artemis is not a mod of this subreddit, Don't do anything.
     # This makes an API call, so we try to exit as much as possible
     # before it to speed things up.
-    current_permissions = connection.obtain_mod_permissions(post_subreddit)
+    current_permissions = connection.obtain_mod_permissions(post_subreddit, INSTANCE)
     if not current_permissions[0]:
         return False
     else:
@@ -1485,7 +1500,7 @@ def main_messaging():
 
                 # If there's a matching template and the original sender
                 # of the chain is Artemis, we set the post flair.
-                if template_result is not None and message_parent_author == AUTH.username:
+                if template_result is not None and message_parent_author == USERNAME_REG:
                     relevant_submission = reddit.submission(relevant_post_id)
                     main_post_approval(relevant_submission, template_result)
                     logger.info('Messaging: > Set flair via messaging for '
@@ -1509,16 +1524,14 @@ def main_messaging():
         # MODERATION-RELATED MESSAGING FUNCTIONS
         # Get just the short name of the subreddit.
         relevant_subreddit = msg_subreddit.display_name.lower()
-        # This is an auto-generated moderation invitation message.
-        # If we are in a mode where we DO NOT want to accept invites
-        # yet during a statistics cycle, save the message for later.
-        # This also has a `mod_invite_counter` which helps space out
-        # multiple invites if there are a bunch at the same time.
-        # If the counter is reached, Artemis will process it again
-        # later so that it can also get to other things first.
+
         if 'invitation to moderate' in msg_subject:
             # Note the invitation to moderate.
             logger.info("Messaging: New moderation invite from r/{}.".format(msg_subreddit))
+
+            # Get a list of open instances.
+            available = connection.CONFIG.available_instances
+            open_instance = choice(["{}{}".format(AUTH.username, x) for x in available if x != 99])
 
             # Check against our configuration data. Exit if it matches
             # pre-existing data.
@@ -1526,6 +1539,28 @@ def main_messaging():
                 # Message my creator about this.
                 messaging_send_creator(relevant_subreddit, "omit",
                                        "View it at r/{}.".format(relevant_subreddit))
+                continue
+
+            # Check if this instance is currently open for invites.
+            # If it's not, redirect with a reply and a redirect.
+            if INSTANCE not in connection.CONFIG.available_instances:
+                message.reply(MSG_MOD_INIT_REDIRECT.format(relevant_subreddit, open_instance))
+                logger.info("Messaging: Current instance {} is not available for mod invites. "
+                            "Replied with redirect message to u/{}.".format(INSTANCE, open_instance))
+                continue
+
+            # Check to see if the subreddit is already being currently
+            # monitored by an instance of Artemis. This tuple's first
+            # value will return `True` if the subreddit is already
+            # monitored by an instance.
+            instance_results = connection.monitored_instance_checker(relevant_subreddit)
+            if instance_results[0]:
+                active_instance = instance_results[1][0]
+                message.reply(MSG_MOD_INIT_ALREADY_MONITORED.format(relevant_subreddit,
+                                                                    active_instance,
+                                                                    open_instance))
+                logger.info("Messaging: Subreddit r/{} is already monitored by "
+                            "an instance at {}.".format(relevant_subreddit, active_instance))
                 continue
 
             # Check for minimum subscriber count.
@@ -1582,13 +1617,13 @@ def main_messaging():
                 minimum_section = MSG_MOD_INIT_MINIMUM.format(SETTINGS.min_s_stats,
                                                               subscribers_until_minimum)
                 logger.info("Messaging: r/{} subscribers below "
-                            "minimum requiured for statistics.".format(relevant_subreddit))
+                            "minimum required for statistics.".format(relevant_subreddit))
             else:
                 minimum_section = MSG_MOD_INIT_NON_MINIMUM.format(relevant_subreddit)
 
             # Determine the permissions I have and what sort of status
             # the subreddit wants.
-            current_permissions = connection.obtain_mod_permissions(relevant_subreddit)
+            current_permissions = connection.obtain_mod_permissions(relevant_subreddit, INSTANCE)
             if current_permissions[0]:
                 # Fetch the list of moderator permissions we have.
                 # The second element will be an empty list if Artemis is
@@ -1619,6 +1654,8 @@ def main_messaging():
             else:
                 # Exit as we are not a moderator. Note: This will not
                 # exit if given *wrong* permissions.
+                logger.info('Messaging: I do not appear to be a moderator '
+                            'of this subreddit (Instance `{}`). Exiting...'.format(INSTANCE))
                 return
 
             # Check for the templates that are available to Artemis and
@@ -1640,12 +1677,26 @@ def main_messaging():
                 template_section = ("\nThis subreddit has **{} user-accessible post flairs** "
                                     "to enforce:\n\n".format(template_number))
                 template_section += subreddit_templates_collater(relevant_subreddit)
-                flair_mode = connection.monitored_subreddits_enforce_mode(relevant_subreddit)
+                flair_mode = connection.monitored_subreddits_enforce_mode(relevant_subreddit,
+                                                                          INSTANCE)
+
+            # Check against the history to see if this subreddit was on
+            # a previous instance. If it is, migrate the data over to
+            # the new database and let the mods know.
+            previous_data = wikipage_access_history('read', None).get(relevant_subreddit, None)
+            migration_component = ''
+            if previous_data:
+                previous_instance = previous_data.get('instance', None)
+                if previous_instance != INSTANCE and previous_instance:
+                    # Only migrate if the two instances are different.
+                    database.migration_assistant(relevant_subreddit, previous_instance, INSTANCE)
+                    migration_component = MSG_MOD_INSTANCE_MIGRATION.format(relevant_subreddit,
+                                                                            previous_instance, INSTANCE)
 
             # Format the reply to the subreddit, and confirm the invite.
             body = MSG_MOD_INIT_ACCEPT.format(relevant_subreddit, mode_component, template_section,
                                               messaging_component, minimum_section,
-                                              flair_mode)
+                                              flair_mode, migration_component)
             message.reply(body + BOT_DISCLAIMER.format(relevant_subreddit))
             logger.info("Messaging: Sent confirmation reply. Set to `{}` mode.".format(mode))
 
@@ -1666,7 +1717,7 @@ def main_messaging():
             status = "Accepted mod invite to r/{}".format(relevant_subreddit)
             subreddit_url = 'https://www.reddit.com/r/{}'.format(relevant_subreddit)
             try:
-                user_sub = 'u_{}'.format(AUTH.username)
+                user_sub = 'u_{}'.format(USERNAME_REG)
                 log_entry = reddit.subreddit(user_sub).submit(title=status, url=subreddit_url,
                                                               send_replies=False, resubmit=False,
                                                               nsfw=msg_subreddit.over18)
@@ -1685,7 +1736,8 @@ def main_messaging():
             # subreddit by writing the subreddit name into a scratch
             # file that stats will pick up, and clear.
             with open(FILE_ADDRESS.start, 'a+', encoding='utf-8') as f:
-                f.write("\n{}".format(relevant_subreddit))
+                start_data = "{}: {}".format(INSTANCE, relevant_subreddit)
+                f.write("\n{}".format(start_data))
 
             if log_entry is not None:
                 # This has not been noted before. Format a preview text.
@@ -1708,7 +1760,7 @@ def main_messaging():
                     log_comment.mod.lock()
 
             # Check against the history.
-            wikipage_edit_history('readd', relevant_subreddit)
+            wikipage_access_history('readd', relevant_subreddit)
 
         # Takeout, or exporting data, is located here in order to allow
         # for subreddits that formerly used Artemis to gain access to
@@ -1729,7 +1781,7 @@ def main_messaging():
         # EXIT EARLY if subreddit is NOT in monitored list and it wasn't
         # a mod invite or a takeout request, as there's no point in
         # processing said message.
-        current_permissions = connection.obtain_mod_permissions(relevant_subreddit)
+        current_permissions = connection.obtain_mod_permissions(relevant_subreddit, INSTANCE)
         removal_subject = 'has been removed as a moderator from'
         if not current_permissions[0] and removal_subject not in msg_subject:
             # We got a message but we are not monitoring that subreddit.
@@ -1897,7 +1949,8 @@ def main_messaging():
                 relevant_extended = database.extended_retrieve(relevant_subreddit)
                 relevant_extended['removal_id'] = message.id
                 relevant_extended['removal_utc'] = int(message.created_utc)
-                wikipage_edit_history("remove", {relevant_subreddit: relevant_extended})
+                relevant_extended['instance'] = INSTANCE
+                wikipage_access_history("remove", {relevant_subreddit: relevant_extended})
 
                 # Delete the subreddit from the monitored list.
                 database.subreddit_delete(relevant_subreddit)
@@ -1962,11 +2015,24 @@ def main_get_posts_sections():
     flair enforcing and divides them into smaller sets. This is because
     Reddit appears to have a limit of 250 subreddits per feed, which
     would mean that Artemis encounters the limit regularly.
+    If the number of subreddits is below 250, the entirety will be
+    returned as a one-item list.
+    If there are zero subreddits, it will return an empty list.
 
     :return: A list of strings consisting of subreddits added together.
     """
     # Access the database, selecting only ones with flair enforcing.
     enforced_subreddits = database.monitored_subreddits_retrieve(True)
+
+    # If the number of subreddits is few, don't return multiple chunks.
+    if len(enforced_subreddits) == 0:
+        logger.info('Get Posts Sections: No subreddits with flair enforcement.')
+        return []
+    elif 0 < len(enforced_subreddits) < 250:
+        final_components = ['+'.join(enforced_subreddits)]
+        logger.info('Get Posts Sections: {} subreddits with flair enforcement. '
+                    'Returning as a single section.'.format(len(enforced_subreddits)))
+        return final_components
 
     # Determine the number of subreddits we want per section.
     # Then divide the list into `num_chunks`chunks.
@@ -2000,6 +2066,12 @@ def main_get_submissions(statistics_mode=False):
     # 1000 posts are fetched initially.
     posts = []
     sections = main_get_posts_sections()
+    # Exit in the less likely case that there are no subreddits
+    # whatsoever to monitor.
+    if not len(sections):
+        logger.info('Get: There are no subreddit sections to monitor. Exiting.')
+        return
+
     for section in sections:
         if ISOCHRONISMS == 0:
             logger.info('Get: Starting fresh for section number {} '
@@ -2073,7 +2145,7 @@ def main_get_submissions(statistics_mode=False):
         if post_nsfw:
             post_title = "{}...".format(post.title[:10])
         else:
-            post_title = post.title.replace("]", r"\]")
+            post_title = markdown_escaper(post.title)
 
         # Insert this post's ID into the processed list for insertion.
         # This is done as a tuple.
@@ -2100,7 +2172,7 @@ def main_get_submissions(statistics_mode=False):
             # Get our permissions for this subreddit.
             # If we are not a mod of this subreddit, don't do anything.
             # Otherwise, collect the mod permissions as a list.
-            current_permissions = connection.obtain_mod_permissions(post_subreddit)
+            current_permissions = connection.obtain_mod_permissions(post_subreddit, INSTANCE)
             if not current_permissions[0]:
                 continue
             else:
@@ -2234,6 +2306,24 @@ def main_get_submissions(statistics_mode=False):
 # This is the regular loop for Artemis, running main functions in
 # sequence while taking a `SETTINGS.wait` break in between.
 if __name__ == "__main__":
+    # Get the instance number as an integer.
+    if len(sys.argv) > 1:
+        INSTANCE = int(sys.argv[1].strip())
+        logger.info("Launching with instance {}.".format(INSTANCE))
+        database.define_database(INSTANCE)
+    else:
+        INSTANCE = 99
+
+    # Log into Reddit.
+    connection.login(False, INSTANCE)
+    reddit = connection.reddit
+    reddit_helper = connection.reddit_helper
+    NUMBER_TO_FETCH = connection.NUMBER_TO_FETCH
+    if INSTANCE != 99:
+        USERNAME_REG = "{}{}".format(AUTH.username, INSTANCE)
+    else:
+        USERNAME_REG = AUTH.username
+
     try:
         while True:
             try:
@@ -2262,7 +2352,7 @@ if __name__ == "__main__":
                 main_flair_checker()
 
                 # Record API usage limit.
-                probe = reddit.redditor(AUTH.username).created_utc
+                probe = reddit.redditor(USERNAME_REG).created_utc
                 used_calls = reddit.auth.limits['used']
 
                 # Record memory usage at the end of an isochronism.
