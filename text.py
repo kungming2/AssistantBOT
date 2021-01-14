@@ -24,6 +24,8 @@ AssistantBOT/wiki/faq#wiki_flair_enforcing).
 
 {2}
 
+{6}
+
 ---
 
 * Moderators can [send me new modmail messages]\
@@ -69,11 +71,32 @@ MSG_MOD_INIT_QUARANTINED = '''
 ☣️ It appears that this subreddit may be a [quarantined community]\
 (https://www.reddithelp.com/en/categories/rules-reporting/account-and-community-restrictions\
 /quarantined-subreddits). Unfortunately, Reddit explicitly makes it difficult, if not impossible, \
-to [access data about quarantined communities through its API](https://redd.it/3fx3gt). \
-Consequently, Artemis is not able to assist quarantined communities.
+to [access data about quarantined communities through its public API](https://redd.it/3fx3gt). \
+Consequently, Artemis is unable to assist quarantined communities.
 
-We apologize for the inconvenience.
+Sorry for any inconvenience!
 '''
+MSG_MOD_INIT_REDIRECT = """
+🈵 Thanks for inviting me to assist the r/{0} \
+[moderator team](https://www.reddit.com/r/{0}/about/moderators)! \
+We are currently asking new subreddits to invite my alternate accounts \
+to moderate instead, in order to spread out the load on Reddit's API. 
+
+**Please [send a moderator invite]\
+(https://www.reddit.com/r/{0}/about/moderators) to the alternate \
+account at u/{1}**, and I'll take care of the rest for you.
+
+Sorry for any inconvenience!
+"""
+MSG_MOD_INIT_ALREADY_MONITORED = """
+⁉️ It looks like Artemis is already active on r/{0} with its u/{1} \
+account. If you would like to move your subreddit to a different \
+instance of Artemis, please remove any of its accounts from the r/{0} \
+moderator list, and send an invite to the bot account you want it to \
+be active on.
+
+The alternate account **u/{2}** is currently available.
+"""
 MSG_MOD_INIT_MINIMUM = """
 ⏸️ This subreddit currently has fewer than {0} subscribers, so I've paused statistics \
 gathering for now. I will automatically resume statistics gathering once it reaches that \
@@ -113,7 +136,7 @@ If you'd like, please check out these Reddit Help articles ([New Reddit]\
 how to set up and enable post flairs for your subreddit.
 
 If you have already created post flairs, they may not be set to be \
-publicly selectable. If this is the case, please make sure the option for submitters to assign \
+*publicly* selectable. If this is the case, please make sure the option for submitters to assign \
 their own post flair is selected, ([New Reddit](https://i.imgur.com/86mVlzQ.png), [Old Reddit]\
 (https://i.imgur.com/V2YqXQG.png)) and then send a modmail message with `Enable` in the subject \
 line to re-enable flair enforcing.
@@ -125,6 +148,13 @@ MSG_MOD_INIT_NEED_WIKI = '''
 😕 It appears that I do not have the `wiki` mod permission to create and update a subreddit's \
 statistics page. If you would still like me to assist the mod team with statistics, please grant \
 me the `wiki` [mod permission here](https://www.reddit.com/r/{}/about/moderators). Thanks!
+'''
+MSG_MOD_INSTANCE_MIGRATION = '''
+---
+
+📦 It appears that this subreddit was previously monitored by an instance of Artemis (`{0}`). \
+Any data associated with r/{1} has been ported from the old instance's databases for use with \
+this instance's (`{2}`).
 '''
 MSG_MOD_RESP_ENABLE = ("🔓 Flair enforcing is now **ENABLED** on r/{}. "
                        "Artemis will send reminder messages to users "
@@ -176,7 +206,7 @@ MSG_MOD_QUERY_NONE = '''
 MSG_MOD_LEAVE = '''
 👋 Artemis will no longer be active on r/{}. Have a good day!
 '''
-# The following are
+# The following are messages to users reminding them to use post flairs.
 MSG_USER_FLAIR_SUBJECT = "[Notification] ⚠️ Your post on r/{} needs a post flair!"
 MSG_USER_FLAIR_BODY = '''
 Hey there u/{0},
@@ -199,7 +229,13 @@ asked for all posts to have a *post flair* \
 View a GIF below to show you how!
     * *[Mobile](https://i.imgur.com/qPJlLPH.gifv)* • \
 *[Desktop (New)](https://i.imgur.com/1jzmEqK.gifv)* • \
-*[Desktop (Old)](https://i.imgur.com/V8NYT6N.gifv)*
+*[Desktop (Old)](https://i.imgur.com/V8NYT6N.gifv)* • \
+*[Mobile Web](https://i.imgur.com/Hna2rD7.gifv)*
+    * Third-party apps: *[Apollo](https://i.imgur.com/X4EaiI1.gifv)*  \
+• *[BaconReader](https://i.imgur.com/ZJnBmEk.gifv)* • \
+*[Boost](https://i.imgur.com/8h4Zpw3.gifv)* • \
+*[Relay](https://i.imgur.com/2g7s4jk.gifv)* • \
+*[RIF](https://i.imgur.com/179de1o.gifv)*
 {7}
 
 **The following post flairs are available**:
@@ -278,7 +314,7 @@ WIKIPAGE_TEMPLATE = '''
 GOODBYE_PHRASES = ['Adieu', 'Adiós', 'All the best', 'Au revoir', 'Best regards', 'Cheers', 'Ciao',
                    'Farewell', 'Goodbye', 'Hasta la vista', 'Have a fantastic day',
                    'Have a good one', 'Have a great day', 'Have a nice day',
-                   'I remain your faithful servant', 'Keep it real', 'Live long and prosper',
+                   'Keep it real', 'Live long and prosper',
                    'Mahalo', 'May the odds be ever in your favor', 'Namaste', 'Peace', 'Regards',
                    'Sayonara', 'See ya', 'So long', 'Stay awesome', 'Stay healthy',
                    'Stay safe', 'Stay well', 'Take care', 'Take it easy', 'To infinity and beyond',
