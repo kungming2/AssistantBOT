@@ -11,7 +11,7 @@ import prawcore
 import yaml
 
 from common import *
-from settings import AUTH, SETTINGS
+from settings import AUTH, load_instances, SETTINGS
 
 
 """GLOBAL DEFINITIONS"""
@@ -19,6 +19,8 @@ from settings import AUTH, SETTINGS
 CONFIG = None
 reddit = None
 reddit_helper = None
+reddit_monitor = None
+INSTANCE = None
 NUMBER_TO_FETCH = SETTINGS.max_get_posts
 
 
@@ -35,7 +37,7 @@ def config_retriever():
 
     # Access the configuration page on the wiki.
     # noinspection PyUnresolvedReferences
-    target_page = reddit.subreddit('translatorBOT').wiki['artemis_config'].content_md
+    target_page = reddit_helper.subreddit('translatorBOT').wiki['artemis_config'].content_md
     config_data = yaml.safe_load(target_page)
 
     # Here are some basic variables to use, making sure everything is
@@ -44,6 +46,7 @@ def config_retriever():
     config_data['users_omit'] = [x.lower().strip() for x in config_data['users_omit']]
     config_data['users_omit'] += [AUTH.creator]
     config_data['bots_comparative'] = [x.lower().strip() for x in config_data['bots_comparative']]
+    config_data['available_instances'] = [int(x) for x in config_data['available_instances']]
 
     # This is a custom phrase that can be included on all wiki pages as
     # an announcement from the bot creator.
@@ -121,7 +124,7 @@ def get_posts_frequency():
 
 
 # noinspection PyGlobalUndefined,PyGlobalUndefined
-def login(posts_frequency=True):
+def login(posts_frequency=True, instance_num=99):
     """A simple function to log in and authenticate to Reddit. This
     declares a global `reddit` object for all other functions to work
     with. It also authenticates under a secondary regular account as a
@@ -130,21 +133,32 @@ def login(posts_frequency=True):
 
     :param posts_frequency: A Boolean denoting whether we should
                             check for the post frequency.
+    :param instance_num: An integer denoting which instance we want to
+                         launch the bot as.
     :return: `None`, but global `reddit` and `reddit_helper` variables
              are declared.
     """
     # Declare the connections as global variables.
     global reddit
     global reddit_helper
+    global reddit_monitor
+    instance_login = SimpleNamespace(**load_instances(instance_num))
+
+    # Format the instance.
+    user_agent = 'Artemis v{} (u/{}), a moderation assistant written by u/{}.'
+    if instance_num != 99:
+        username_adapted = "{}{}".format(AUTH.username, instance_num)
+    else:
+        username_adapted = AUTH.username
+    user_agent = user_agent.format(AUTH.version_number, username_adapted,
+                                   AUTH.creator)
 
     # Authenticate the main connection.
-    user_agent = 'Artemis v{} (u/{}), a moderation assistant written by u/{}.'
-    user_agent = user_agent.format(AUTH.version_number, AUTH.username, AUTH.creator)
-    reddit = praw.Reddit(client_id=AUTH.app_id,
-                         client_secret=AUTH.app_secret,
-                         password=AUTH.password,
-                         user_agent=user_agent, username=AUTH.username)
-    logger.info("Startup: Logging in as u/{}.".format(AUTH.username))
+    reddit = praw.Reddit(client_id=instance_login.app_id,
+                         client_secret=instance_login.app_secret,
+                         password=instance_login.password,
+                         user_agent=user_agent, username=username_adapted)
+    logger.info("Startup: Logging in as u/{}.".format(username_adapted))
 
     # Authenticate the secondary helper connection.
     reddit_helper = praw.Reddit(client_id=AUTH.helper_app_id,
@@ -161,7 +175,7 @@ def login(posts_frequency=True):
     return
 
 
-def obtain_mod_permissions(subreddit_name):
+def obtain_mod_permissions(subreddit_name, instance_num=99):
     """A function to check if Artemis has mod permissions in a
     subreddit, and what kind of mod permissions it has.
     The important ones Artemis needs are: `wiki`, so that it can edit
@@ -176,6 +190,7 @@ def obtain_mod_permissions(subreddit_name):
     More info: https://www.reddit.com/r/modhelp/wiki/mod_permissions
 
     :param subreddit_name: Name of a subreddit.
+    :param instance_num: Instance of the mod account we are checking.
     :return: A tuple. First item is `True`/`False` on whether Artemis is
                       a moderator.
                       Second item is a list of permissions, if any.
@@ -183,23 +198,60 @@ def obtain_mod_permissions(subreddit_name):
     # noinspection PyUnresolvedReferences
     r = reddit.subreddit(subreddit_name)
 
+    if instance_num != 99:
+        check_username = "{}{}".format(AUTH.username.lower(), instance_num)
+    else:
+        check_username = AUTH.username.lower()
+
     # This is a try/except sequence to account for private subreddits
     # since one is unable to get a mod list from a private one.
     try:
         moderators_list = [mod.name.lower() for mod in r.moderator()]
     except prawcore.exceptions.Forbidden:
         return False, None
-    am_mod = True if AUTH.username.lower() in moderators_list else False
+    am_mod = True if check_username in moderators_list else False
 
     if not am_mod:
         my_perms = None
     else:
-        me_as_mod = [x for x in r.moderator(AUTH.username) if x.name == AUTH.username][0]
+        me_as_mod = [x for x in r.moderator(check_username) if x.name.lower() == check_username][0]
 
         # The permissions I have become a list. e.g. `['wiki']`
         my_perms = me_as_mod.mod_permissions
 
     return am_mod, my_perms
+
+
+# noinspection PyUnresolvedReferences
+def obtain_subreddit_public_moderated(username):
+    """A function that retrieves (via the web and not the database)
+    a list of public subreddits that a user moderates.
+
+    :param username: Name of a user.
+    :return: A list of subreddits that the user moderates.
+    """
+    subreddit_dict = {}
+    active_subreddits = []
+    active_fullnames = []
+
+    # Iterate through the data and get the subreddit names and their
+    # Reddit fullnames (prefixed with `t5_`). It will fail gracefully
+    # if the account does not moderate anything.
+    mod_target = '/user/{}/moderated_subreddits'.format(username)
+    try:
+        for subreddit in reddit_helper.get(mod_target)['data']:
+            active_subreddits.append(subreddit['sr'].lower())
+            active_fullnames.append(subreddit['name'].lower())
+    except KeyError:  # This username does not moderate anything.
+        return {}
+    else:
+        active_subreddits.sort()
+
+    subreddit_dict['list'] = active_subreddits
+    subreddit_dict['fullnames'] = active_fullnames
+    subreddit_dict['total'] = len(active_subreddits)
+
+    return subreddit_dict
 
 
 def messaging_send_creator(subreddit_name, subject_type, message):
@@ -231,11 +283,12 @@ def messaging_send_creator(subreddit_name, subject_type, message):
     return
 
 
-def monitored_subreddits_enforce_mode(subreddit_name):
+def monitored_subreddits_enforce_mode(subreddit_name, instance_num=99):
     """This function returns a simple string telling us the flair
     enforcing MODE of the subreddit in question.
 
     :param subreddit_name: Name of a subreddit.
+    :param instance_num: Instance number of a subreddit.
     :return: The Artemis mode of the subreddit as a string.
     """
     enforce_mode = 'Default'
@@ -243,7 +296,7 @@ def monitored_subreddits_enforce_mode(subreddit_name):
 
     # Get the type of flair enforcing default/strict status.
     # Does it have the `posts` or `flair` mod permission?
-    current_permissions = obtain_mod_permissions(subreddit_name.lower())
+    current_permissions = obtain_mod_permissions(subreddit_name.lower(), instance_num)
 
     # If I am a moderator, check for the `+` enhancement and then for
     # strict mode. Return `N/A` if not a moderator.
@@ -257,3 +310,65 @@ def monitored_subreddits_enforce_mode(subreddit_name):
         flair_enforce_status = 'N/A'
 
     return flair_enforce_status
+
+
+def monitored_instance_checker(query_subreddit=None, max_num=9):
+    """ This function checks across all instances to see all the
+    subreddits moderated. This is important for avoiding duplicate
+    additions to a moderation team.
+
+    :param query_subreddit: A subreddit to check if it's already
+                            on the moderated list.
+    :param max_num: The largest instance number there is an account for.
+    :return: Tuples: `True` if the subreddit is already being monitored,
+                     `False` if it isn't.
+             Without a subreddit query, it just returns a broader
+             dictionary with all the instance data.
+    """
+    full_dict = {}
+    accounts_on = []
+    usernames = [AUTH.username, 'AssistantBOT0']
+    count = 1
+
+    # Create a list of the accounts to check.
+    while count <= max_num:
+        usernames.append("{}{}".format(AUTH.username, count))
+        count += 1
+    logger.debug("Usernames to check for instances: {}".format(usernames))
+
+    # Iterate through the usernames.
+    for instance in usernames:
+        instance_data = obtain_subreddit_public_moderated(instance)
+        full_dict[instance] = instance_data
+
+    # Iterate over the instances and check if the subreddit is on
+    # any of them, if there is a subreddit to query. Otherwise,
+    # just return the data dictionary.
+    if query_subreddit:
+        query_subreddit = query_subreddit.lower()
+        logger.info('Instance Checker: Searching for subreddit r/{}'.format(query_subreddit))
+        for account in full_dict:
+            if 'list' in full_dict[account]:
+                if query_subreddit in full_dict[account]['list']:
+                    accounts_on.append(account)
+            else:
+                continue
+
+        if accounts_on:
+            logger.info('Instance Checker: Subreddit r/{} is '
+                        'already on instances: {}'.format(query_subreddit, accounts_on))
+            return True, accounts_on
+        else:
+            logger.info('Instance Checker: Subreddit r/{} is not '
+                        'moderated by any instance.'.format(query_subreddit))
+            return False, []
+    else:
+        logger.info("Instance Checker: No subreddit query. Dictionary returned.")
+        return full_dict
+
+
+# Manual test of the configuration data.
+if __name__ == "__main__":
+    login(posts_frequency=False)
+    config_retriever()
+    print(CONFIG)
