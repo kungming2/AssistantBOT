@@ -12,7 +12,7 @@ import traceback
 from ast import literal_eval
 from calendar import monthrange
 from collections import Counter, OrderedDict
-from shutil import copy
+from random import sample
 from threading import Thread
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
@@ -26,21 +26,13 @@ from requests.exceptions import ConnectionError
 import connection
 import database
 import timekeeping
-from common import flair_sanitizer, logger, main_error_log
-from settings import AUTH, FILE_ADDRESS, SETTINGS, SOURCE_FOLDER
+from common import flair_sanitizer, logger, main_error_log, markdown_escaper
+from settings import AUTH, FILE_ADDRESS, SETTINGS
 from text import *
 
-
-"""LOGGING IN"""
-
-connection.login(False)
-reddit = connection.reddit
-reddit_helper = connection.reddit_helper
+# Number of regular top-level routine runs that have been made.
 CYCLES = 0
-
-# Initially fetch the current list of monitored subreddits.
-MONITORED_SUBREDDITS = database.monitored_subreddits_retrieve()
-logger.info("Stats: {:,} monitored subreddits loaded.".format(len(MONITORED_SUBREDDITS)))
+AGGS_ENABLED = True
 
 
 """SUBREDDIT TRAFFIC RETRIEVAL"""
@@ -182,6 +174,7 @@ def subreddit_traffic_recorder(subreddit_name):
     return traffic_dictionary
 
 
+# noinspection PyTypeChecker
 def subreddit_traffic_retriever(subreddit_name):
     """Function that looks at the monthly traffic data for a subreddit
     and returns it as a Markdown table.
@@ -440,6 +433,59 @@ def subreddit_traffic_retriever(subreddit_name):
 """SUBREDDIT STATISTICS RETRIEVAL"""
 
 
+def subreddit_pushshift_probe(test_count=5):
+    """ This function does a check of Pushshift to see if aggregations
+    are enabled or not, as Artemis depends on aggregations for some
+    statistics.
+
+    :param test_count: How many subreddit queries to test.
+    :return: `True` if aggregations are valid, returns `False if they
+    are not.
+    """
+    global AGGS_ENABLED
+    aggs_valid_count = 0
+
+    # Return if there are few monitored subreddits.
+    if len(MONITORED_SUBREDDITS) < test_count:
+        AGGS_ENABLED = True
+        return
+
+    # Select some random subreddits to test.
+    random_selection = sample(MONITORED_SUBREDDITS, test_count)
+
+    # Get a time two weeks ago to test
+    two_weeks_prior = int(time.time() - 1209600)
+    start_search_at = timekeeping.month_convert_to_string(two_weeks_prior)
+
+    # We run a regular query to test if the database itself is up,
+    # then follow that up with an aggregations query. If aggregations
+    # are off, then there will be no `aggs` in the result for the query.
+    for subreddit in random_selection:
+        regular_query = ("https://api.pushshift.io/reddit/search/"
+                         "submission/?subreddit={}&after={}"
+                         "&size=25".format(subreddit, start_search_at))
+        aggs_query = regular_query + "&aggs=author"
+
+        regular_data = subreddit_pushshift_access(regular_query)
+        aggs_data = subreddit_pushshift_access(aggs_query)
+        if regular_data and "aggs" in aggs_data:
+            logger.info("Pushshift Probe: r/{} aggregations are valid.".format(subreddit))
+            aggs_valid_count += 1
+        else:
+            logger.info("Pushshift Probe: r/{} aggregations are invalid.".format(subreddit))
+
+    # If there was no valid aggregate data, return False.
+    logger.info("Pushshift Probe: Detected {} valid aggregation "
+                "results out of {} tests.".format(aggs_valid_count, test_count))
+    if aggs_valid_count > 0:
+        AGGS_ENABLED = True
+    else:
+        AGGS_ENABLED = False
+        logger.info("Pushshift Probe: Aggregations are currently invalid.")
+
+    return
+
+
 def subreddit_pushshift_access(query_string, retries=3):
     """This function is called by others as the main point of query to
     Pushshift. It contains code to account for JSON decoding errors and
@@ -452,6 +498,13 @@ def subreddit_pushshift_access(query_string, retries=3):
     :return: An empty dictionary if there was a connection error,
              otherwise, a dictionary.
     """
+    # A temporary check to see if aggregations are currently active.
+    # If not, the function returns an empty dictionary straightaway,
+    # as it will not get real data anyway.
+    if "&aggs" in query_string and not AGGS_ENABLED:
+        return {}
+
+    # Regular function iteration.
     for _ in range(retries):
         try:
             returned_data = requests.get(query_string)
@@ -981,7 +1034,7 @@ def subreddit_subscribers_redditmetrics_historical_recorder(subreddit_name, fetc
     # Access the site and retrieve its serialized data. If we encounter
     # an error loading the site page, return.
     try:
-        response = urlopen("http://redditmetrics.com/r/{}/".format(subreddit_name))
+        response = urlopen("https://frontpagemetrics.com/r/{}/".format(subreddit_name))
     except (HTTPError, URLError):
         return
 
@@ -1065,8 +1118,8 @@ def subreddit_pushshift_oldest_retriever(subreddit_name):
         # If there was a problem with interpreting JSON data, return an
         # error message.
         if 'data' not in retrieved_data:
-            error_section = ("* There was an temporary issue retrieving the oldest posts for this "
-                             "subreddit. Artemis will attempt to re-access the data at the next "
+            error_section = ("* There was an issue retrieving this datapoint from Pushshift."
+                             "Artemis will attempt to re-access the data at the next "
                              "statistics update.")
             error_message = header + error_section
             return error_message
@@ -1257,7 +1310,8 @@ def subreddit_top_collater(subreddit_name, month_string, last_month_mode=False):
         my_score = item[0]
         my_id = item[1]
         my_date = timekeeping.convert_to_string(dictionary_data[my_id]['created_utc'])
-        new_line = line_template.format(my_score, dictionary_data[my_id]['title'],
+        reformatted_title = markdown_escaper(dictionary_data[my_id]['title'])
+        new_line = line_template.format(my_score, reformatted_title,
                                         dictionary_data[my_id]['permalink'],
                                         dictionary_data[my_id]['author'], my_date)
         formatted_lines.append(new_line)
@@ -1330,7 +1384,7 @@ def subreddit_pushshift_time_authors_retriever(subreddit_name, start_time, end_t
             else:
                 error_message = "\n\n**Top Commenters**\n\n"
 
-            error_message += ("* There was an temporary issue retrieving this information. "
+            error_message += ("* There was an issue retrieving this information from Pushshift. "
                               "Artemis will attempt to re-access the data "
                               "at the next statistics update.")
             return error_message
@@ -1445,8 +1499,8 @@ def subreddit_pushshift_activity_retriever(subreddit_name, start_time, end_time,
         # string for inclusion.
         if 'aggs' not in retrieved_data:
             error_message = "\n\n**{}s Activity**\n\n".format(search_type)
-            error_message += ("* There was an temporary issue retrieving this information. "
-                              "Artemis will attempt to re-access the data at "
+            error_message += ("* There was an issue retrieving this information from "
+                              "Pushshift. Artemis will attempt to re-access the data at "
                               "the next statistics update.")
             return error_message
 
@@ -1962,7 +2016,7 @@ def subreddit_statistics_retrieve_all(subreddit_name):
     return
 
 
-def subreddit_userflair_counter(subreddit_name):
+def subreddit_userflair_counter(subreddit_name, flairs_to_search=None):
     """This function if called on a subreddit with the `flair`
     permission, allows for Artemis to tally the popularity of
     userflairs. It has two modes:
@@ -1971,7 +2025,14 @@ def subreddit_userflair_counter(subreddit_name):
     the other is for the old `css_class` of flairs.
     The former has images in the output table.
 
+    TODO For post-Maple: Enable query of special flairs,
+         output with `users_flair_dict`. Probably through advanced or
+         query functions.
+
     :param subreddit_name: The name of a subreddit.
+    :param flairs_to_search: A list of flairs (emoji only) that one
+                             would like a user list of. This requires
+                             that they are wrapped in colons.
     :return: `None` if the request is not valid (no Reddit flairs or
              access to flairs), formatted Markdown text otherwise.
     """
@@ -1979,6 +2040,7 @@ def subreddit_userflair_counter(subreddit_name):
     flair_master_css = {}
     emoji_dict = {}
     usage_index = {}
+    users_flair_dict = {}
     users_w_flair = 0  # Variable storing how many users have a flair.
     formatted_lines = []
     relevant_sub = reddit.subreddit(subreddit_name)
@@ -2038,7 +2100,7 @@ def subreddit_userflair_counter(subreddit_name):
                      'Using new runtime.'.format(subreddit_name))
         # Iterate over the dictionary with user flairs.
         # `flair_text` is an individual user's flair.
-        for flair_text in flair_master.values():
+        for user_flair, flair_text in flair_master.items():
             # Iterate over the emoji we have recorded.
             for emoji_string in emoji_dict.keys():
                 if emoji_string in flair_text:
@@ -2046,6 +2108,16 @@ def subreddit_userflair_counter(subreddit_name):
                         usage_index[emoji_string] += 1
                     else:
                         usage_index[emoji_string] = 1
+
+                    # If we are looking for specific users who have
+                    # a certain emoji, add them to a dictionary.
+                    if flairs_to_search:
+                        if emoji_string in flairs_to_search:
+                            if emoji_string in users_flair_dict:
+                                if user_flair not in users_flair_dict[emoji_string]:
+                                    users_flair_dict[emoji_string] += [user_flair]
+                            else:
+                                users_flair_dict[emoji_string] = [user_flair]
 
         # Get a list of unused emoji, alphabetized.
         unused = list(sorted(emoji_dict.keys() - usage_index.keys(), key=str.lower))
@@ -2125,32 +2197,6 @@ def subreddit_userflair_counter(subreddit_name):
     return body
 
 
-def subreddit_public_moderated(username):
-    """A function that retrieves (via the web and not the database)
-    a list of public subreddits that a user moderates.
-
-    :param username: Name of a user.
-    :return: A list of subreddits that the user moderates.
-    """
-    subreddit_dict = {}
-    active_subreddits = []
-    active_fullnames = []
-
-    # Iterate through the data and get the subreddit names and their
-    # Reddit fullnames (prefixed with `t5_`).
-    mod_target = '/user/{}/moderated_subreddits'.format(username)
-    for subreddit in reddit_helper.get(mod_target)['data']:
-        active_subreddits.append(subreddit['sr'].lower())
-        active_fullnames.append(subreddit['name'].lower())
-    active_subreddits.sort()
-
-    subreddit_dict['list'] = active_subreddits
-    subreddit_dict['fullnames'] = active_fullnames
-    subreddit_dict['total'] = len(active_subreddits)
-
-    return subreddit_dict
-
-
 """WIKIPAGE FUNCTIONS"""
 
 
@@ -2196,7 +2242,7 @@ def wikipage_creator(subreddit_name):
             # only let moderators see it. Also add Artemis as a approved
             # submitter/editor for the wiki.
             stats_wikipage.mod.update(listed=False, permlevel=2)
-            stats_wikipage.mod.add(AUTH.username)
+            stats_wikipage.mod.add(USERNAME_REG)
             logger.info("Wikipage Creator: Created new statistics "
                         "wiki page for r/{}.".format(subreddit_name))
         except prawcore.exceptions.NotFound:
@@ -2213,7 +2259,7 @@ def wikipage_creator(subreddit_name):
 
     # Add bot as wiki contributor.
     try:
-        r.wiki.contributor.add(AUTH.username)
+        r.wiki.contributor.add(USERNAME_REG)
     except prawcore.exceptions.Forbidden:
         logger.info("Wikipage Creator: Unable to add bot as "
                     "approved wiki contributor.")
@@ -2294,7 +2340,7 @@ def wikipage_get_new_subreddits():
     # Iterate over the last few subreddits on the user page that are
     # recorded as having added the bot. Get only moderator invites
     # posts and skip other sorts of posts.
-    for result in reddit_helper.subreddit('u_{}'.format(AUTH.username)).new(limit=20):
+    for result in reddit_helper.subreddit('u_{}'.format(USERNAME_REG)).new(limit=20):
 
         if "Accepted mod invite" in result.title:
             # If the time is older than the last midnight, get the
@@ -2359,14 +2405,15 @@ def wikipage_editor(subreddit_name, subreddit_data, new_subreddits):
     # We check to see if this subreddit is new. If we have NEVER
     # done statistics for this subreddit before, we will send an
     # initial setup message later once statistics are done.
-    if subreddit_name in new_subreddits:
+    # TODO post-Katsura - make this a per-instance thing.
+    if subreddit_name in new_subreddits and INSTANCE is 99:
         send_initial_message = True
     else:
         send_initial_message = False
 
     # Check to make sure we have the wiki editing permission.
     # Exit early if we do not have the wiki editing permission.
-    current_permissions = connection.obtain_mod_permissions(subreddit_name)[1]
+    current_permissions = connection.obtain_mod_permissions(subreddit_name, INSTANCE)[1]
     if current_permissions is None:
         logger.error("Wikipage Editor: No longer a mod on r/{}; "
                      "cannot edit the wiki.".format(subreddit_name))
@@ -2403,6 +2450,9 @@ def wikipage_editor(subreddit_name, subreddit_data, new_subreddits):
         # be saved without an error.
         logger.info('Wikipage Editor: The wikipage for '
                     'r/{} is too large.'.format(subreddit_name))
+    except prawcore.exceptions.ServerError:
+        logger.error('Wikipage Editor: Encountered a 500 error on '
+                     'r/{}.'.format(subreddit_name))
     except Exception as exc:
         # Catch-all broader exception during editing. Record to log.
         # This is split off here because this function is run in a
@@ -2415,7 +2465,7 @@ def wikipage_editor(subreddit_name, subreddit_data, new_subreddits):
                      'r/{}: {}'.format(subreddit_name, wiki_error_entry))
     else:
         logger.info('Wikipage Editor: Successfully updated r/{} '
-                    'statistics'.format(subreddit_name))
+                    'statistics.'.format(subreddit_name))
 
     # If this is a newly added subreddit, send a message to the mods
     # to let them know that their statistics have been posted.
@@ -2454,7 +2504,7 @@ def wikipage_userflair_editor(subreddit_list):
         # Check mod permissions; if I am not a mod, skip this.
         # If I have the `flair` and `wiki` mod permissions,
         # get the data for the subreddit.
-        perms = connection.obtain_mod_permissions(community)
+        perms = connection.obtain_mod_permissions(community, INSTANCE)
         if not perms[0]:
             continue
         elif 'flair' in perms[1] and 'wiki' in perms[1] or 'all' in perms[1]:
@@ -2527,7 +2577,7 @@ def wikipage_status_collater(subreddit_name):
         # Get flair enforcing default/strict status (basically, does it
         # have the `posts` moderator permission?)
         flair_enforce_mode = "\n\n* Flair Enforcing Mode: `{}`"
-        mode_type = connection.monitored_subreddits_enforce_mode(subreddit_name)
+        mode_type = connection.monitored_subreddits_enforce_mode(subreddit_name, INSTANCE)
         flair_enforce_status += flair_enforce_mode.format(mode_type)
     else:
         flair_enforce_status = flair_enforce_status.format("`Off`")
@@ -2605,7 +2655,6 @@ def wikipage_compare_bots():
              subreddits with others.
     """
     bot_list = list(connection.CONFIG.bots_comparative)
-    bot_list.append(AUTH.username.lower())
     bot_dictionary = {}
     formatted_lines = []
 
@@ -2613,7 +2662,7 @@ def wikipage_compare_bots():
     # count how many subreddits are there. We also make sure to omit
     # any user profiles, which begin with "u_"
     for username in bot_list:
-        my_data = subreddit_public_moderated(username)
+        my_data = connection.obtain_subreddit_public_moderated(username)
         my_list = my_data['list']
         my_list = [x for x in my_list if not x.startswith("u_")]
         bot_dictionary[username] = (len(my_list), my_list)
@@ -2628,38 +2677,40 @@ def wikipage_compare_bots():
                      'TheSentinel_30', 'YT_Killer', 'thesentinelbot']
     sentinel_mod_list = []
     for instance in sentinel_list:
-        my_list = subreddit_public_moderated(instance)['list']
+        my_list = connection.obtain_subreddit_public_moderated(instance)['list']
         my_list = [x for x in my_list if not x.startswith("u_")]
         sentinel_mod_list += my_list
-
-    # Remove duplicate subreddits on this list.
     sentinel_mod_list = list(set(sentinel_mod_list))
     sentinel_count = len(sentinel_mod_list)
     bot_dictionary[sentinel_list[-1]] = (sentinel_count, sentinel_mod_list)
 
+    # Access the moderated subreddits across all Artemis instances.
+    # Compile it together in one entry.
+    artemis_data = connection.monitored_instance_checker()
+    artemis_subs = []
+    for artemis_instance in artemis_data:
+        if 'list' in artemis_data[artemis_instance]:
+            artemis_subs += artemis_data[artemis_instance]['list']
+    artemis_subs = list(set(artemis_subs))
+    artemis_count = len(artemis_subs)
+    bot_dictionary[AUTH.username.lower()] = (artemis_count, artemis_subs)
+
     # Look at Artemis's modded subreddits and process through all the
     # data as well.
-    my_public_monitored = bot_dictionary[AUTH.username.lower()][1]
     header = ("\n\n### Comparative Data\n\n"
-              "| Bot | # Subreddits (Public) | Percentage | # Overlap |\n"
-              "|-----|-----------------------|------------|-----------|\n")
+              "| Bot | # Subreddits (Public) | Percentage |\n"
+              "|-----|-----------------------|------------|\n")
 
     # Sort through the usernames alphabetically.
     for username in sorted(bot_dictionary.keys()):
         num_subs = bot_dictionary[username][0]
-        list_subs = bot_dictionary[username][1]
 
         # Format the entries appropriately.
         if username != AUTH.username.lower():
             percentage = num_subs / bot_dictionary[AUTH.username.lower()][0]
-
-            # Also calculate the number of subreddits that overlap.
-            overlap = [value for value in my_public_monitored if value in list_subs]
-            overlap_num = len(overlap)
-            line = "| u/{} | {:,} | {:.0%} | {} |".format(username, num_subs, percentage,
-                                                          overlap_num)
+            line = "| u/{} | {:,} | {:.0%} |".format(username, num_subs, percentage)
         else:
-            line = "| u/{} | {:,} | --- | --- |".format(username, num_subs)
+            line = "| u/{} | {:,} | --- |".format(username, num_subs)
         formatted_lines.append(line)
 
     # Format everything together.
@@ -2723,9 +2774,7 @@ def wikipage_dashboard_collater(run_time=2.00):
     advanced = {}
     advanced_num = 0
     template = ("| r/{0} | {1} | {2} | {3} | {4} |"
-                "[Statistics](https://www.reddit.com/r/{0}/wiki/assistantbot_statistics) | {5} | "
-                "[Traffic](https://www.reddit.com/r/{0}/about/traffic/) | "
-                "[Moderators](https://www.reddit.com/r/{0}/about/moderators) |")
+                "[Statistics](https://www.reddit.com/r/{0}/wiki/assistantbot_statistics) | {5} | ")
 
     # Get the list of monitored subs and alphabetize it.
     list_of_subs = list(MONITORED_SUBREDDITS)
@@ -2778,9 +2827,9 @@ def wikipage_dashboard_collater(run_time=2.00):
               "(https://www.reddit.com/r/translatorBOT/wiki/artemis_config))\n\n"
               "### Monitored Subreddits\n\n"
               "| Subreddit | # Subscribers | # Index | Created | Added | "
-              "Statistics | Config | Moderators | Traffic |\n"
+              "Statistics | Config |\n"
               "|-----------|---------------|---------|---------|-------|"
-              "------------|--------|------------|---------|\n")
+              "------------|--------|\n")
     footer = "\n| **Total** | {:,} | {:,} communities|".format(sum(total_subscribers),
                                                                len(list_of_subs))
     body = header + "\n".join(formatted_lines) + footer
@@ -2803,8 +2852,17 @@ def wikipage_dashboard_collater(run_time=2.00):
     # Access the dashboard wikipage and update it with the information.
     dashboard = reddit.subreddit('translatorBOT').wiki['artemis']
     time_note = 'Updating dashboard for {} UTC.'.format(timekeeping.convert_to_string(time.time()))
-    dashboard.edit(content=body, reason=time_note)
-    logger.info('Dashboard: Updated the overall dashboard.')
+    try:
+        if INSTANCE == 99:
+            dashboard.edit(content=body, reason=time_note)
+            logger.info('Dashboard: Updated the overall dashboard.')
+        else:
+            logger.info('Dashboard: Instance will not update the overall dashboard.')
+    except prawcore.exceptions.TooLarge:
+        # The resulting text is too large.
+        dashboard.edit(content="### Output Too Large",
+                       reason="The current dashboard output size needs to be lowered.")
+        logger.error('Dashboard: Current dashboard output size is too large.')
 
     return
 
@@ -2825,11 +2883,11 @@ def widget_updater(action_data):
     :return: `None`, but widgets are edited.
     """
     # Don't update this widget if it's being run on an alternate account
-    if AUTH.username != "AssistantBOT":
+    if INSTANCE != 99:
         return
 
     # Get the list of public subreddits that are moderated.
-    subreddit_list = subreddit_public_moderated(AUTH.username)['list']
+    subreddit_list = connection.obtain_subreddit_public_moderated(AUTH.username)['list']
 
     # Search for the relevant status and table widgets for editing.
     status_widget = None
@@ -2909,8 +2967,9 @@ def widget_status_updater(index_num, list_amount, current_day, start_time):
     :param start_time: The Unix time at which the cycle started.
     :return: `None`.
     """
-    # Don't update this widget if it's being run on an alternate account
-    if AUTH.username != "AssistantBOT":
+    # Don't update this widget if it's being run on an alternate
+    # instance.
+    if INSTANCE != 99:
         return
 
     # Get the status widget.
@@ -2950,10 +3009,13 @@ def widget_comparison_updater():
     """This function updates a widget on r/Bot that has comparative data
     for various moderator bots on Reddit.
 
+    TODO post-Katsura: Move this to the external script to run on cron.
+
     :return: `None`.
     """
-    # Don't update this widget if it's being run on an alternate account
-    if AUTH.username != "AssistantBOT":
+    # Don't update this widget if it's being run on an alternate
+    # instance.
+    if INSTANCE != 99:
         return
 
     # Search for the relevant status and table widgets for editing.
@@ -2967,7 +3029,7 @@ def widget_comparison_updater():
 
     # Get the comparative data to save.
     edited_body = []
-    my_text = wikipage_compare_bots().split('\n\n')[2].strip()
+    my_text = wikipage_compare_bots().split('\n\n')[1].strip()
     for line in my_text.split('\n'):
         edited_body.append("|".join(line.split("|", 3)[:3]) + '|')
     final_text = '\n'.join(edited_body)
@@ -3029,6 +3091,9 @@ def main_obtain_mentions():
     full_dictionary = {}
     message_template = "View it **[here]({})**."
 
+    if INSTANCE != 99:
+        return
+
     # Run a regular Reddit search for posts mentioning this bot.
     # If a post is not saved, it means we haven't acted upon it yet.
     query = ("{0} OR url:{0} OR selftext:{0} NOT author:{1} "
@@ -3083,6 +3148,8 @@ def main_check_start():
     :return: `None` if the file is blank, a list of subreddits
              otherwise.
     """
+    instance_subs = {}
+
     # Load the file, then clear it.
     with open(FILE_ADDRESS.start, 'r', encoding='utf-8') as f:
         scratchpad = f.read().strip()
@@ -3094,9 +3161,21 @@ def main_check_start():
         new_subs = scratchpad.split('\n')
         new_subs = list(set([x.strip() for x in new_subs if len(x) > 0]))
 
-        # Actually initialize data.
-        for subreddit in new_subs:
+        # Convert saved data.
+        for line in new_subs:
+            instance_number = int(line.split(':')[0])
+            new_subreddit = line.split(':')[1].strip()
+            if instance_number in instance_subs:
+                instance_subs[instance_number] += [new_subreddit]
+            else:
+                instance_subs[instance_number] = [new_subreddit]
 
+        # Exit if there's nothing for the instance to initialize.
+        if INSTANCE not in instance_subs:
+            return
+
+        # Actually initialize data.
+        for subreddit in instance_subs[INSTANCE]:
             # Skip if the subreddit has already been initialized. If it
             # has, it would have traffic data.
             if subreddit_traffic_retriever(subreddit):
@@ -3106,7 +3185,7 @@ def main_check_start():
             initialization(subreddit, True)
         open(FILE_ADDRESS.start, 'w', encoding='utf-8').close()  # Clear
 
-        return
+    return
 
 
 def initialization(subreddit_name, create_wiki=True):
@@ -3165,63 +3244,6 @@ def seconds_till_next_run():
     return seconds_remaining
 
 
-def main_backup_daily():
-    """This function backs up the database files to a secure Box account
-    and a local target. It does not back up the credentials file or the
-    main Artemis file itself. This is called by the master timer during
-    its daily routine.
-
-    :return: Nothing.
-    """
-    current_day = timekeeping.convert_to_string(time.time())
-
-    # Iterate over the backup paths that are listed.
-    for backup_path in [AUTH.backup_folder, AUTH.backup_folder_2]:
-        if not os.path.isdir(backup_path):
-            # If the web disk or the physical disk is not mounted,
-            # record an error.
-            logger.error("Main Backup: It appears that the backup disk "
-                         "at {} is not mounted.".format(backup_path))
-        else:
-            # Mounted successfully. Create a new folder in the
-            # YYYY-MM-DD format.
-            new_folder_path = "{}/{}".format(backup_path, current_day)
-
-            # If there already is a folder with today's date, do not
-            # do anything. Otherwise, start the backup process.
-            if os.path.isdir(new_folder_path):
-                logger.info("Main Backup: Backup folder for {} "
-                            "already exists at {}.".format(current_day, backup_path))
-            else:
-                # Create the new target folder and get the list of files
-                # from the home folder.
-                os.makedirs(new_folder_path)
-                source_files = os.listdir(SOURCE_FOLDER)
-
-                # We don't need to back up files with these file name
-                # extensions. Exclude them from backup.
-                xc = ['journal', '.json', '.out', '.py', '.yaml']
-                source_files = [x for x in source_files if not any(keyword in x for keyword in xc)]
-
-                # Iterate over each file and back it up.
-                for file_name in source_files:
-
-                    # Get the full path of the file.
-                    full_file_name = os.path.join(SOURCE_FOLDER, file_name)
-
-                    # If the file exists, try backing it up. If there
-                    # happens to be a copying error, skip the file.
-                    if os.path.isfile(full_file_name):
-                        try:
-                            copy(full_file_name, new_folder_path)
-                        except OSError:
-                            pass
-
-                logger.info('Main Backup: Completed for {}.'.format(current_day))
-
-    return
-
-
 def main_maintenance_daily():
     """This function brings in the backup function, which backs up files
     to Box and a local external disk.
@@ -3240,7 +3262,6 @@ def main_maintenance_daily():
     database.CONN_STATS.commit()
 
     # Back up the relevant files and cleanup excessive entries.
-    main_backup_daily()
     database.cleanup_updated()
 
     return
@@ -3252,7 +3273,7 @@ def main_maintenance_secondary():
 
     :return: `None`.
     """
-    # Check if there are any mentions and update comparison widget
+    # Check if there are any mentions and update comparison widget.
     main_obtain_mentions()
     widget_comparison_updater()
 
@@ -3331,11 +3352,11 @@ def main_timer(manual_start=False):
     Here we start the cycle for gathering statistics.
     '''
     # Get the list of all our monitored subreddits.
-    # Check integrity first, make sure the subs to update are accurate.
-    # Also refresh the configuration data.
+    # Also refresh the configuration data and aggregations status.
     global MONITORED_SUBREDDITS
     MONITORED_SUBREDDITS = database.monitored_subreddits_retrieve()
     connection.config_retriever()
+    subreddit_pushshift_probe()  # Check for aggregations.
 
     # List of already processed subreddits.
     already_processed = []
@@ -3520,6 +3541,29 @@ def main_timer(manual_start=False):
 
 
 if __name__ == "__main__":
+    # This is if the script is run by itself instead of being imported.
+    # Get the instance number as an integer.
+    if len(sys.argv) > 1:
+        INSTANCE = int(sys.argv[1].strip())
+        logger.info("Launching with instance {}.".format(INSTANCE))
+        database.define_database(INSTANCE)
+    else:
+        INSTANCE = 99
+
+    # Log into Reddit.
+    connection.login(False, INSTANCE)
+    reddit = connection.reddit
+    reddit_helper = connection.reddit_helper
+    if INSTANCE != 99:
+        USERNAME_REG = "{}{}".format(AUTH.username, INSTANCE)
+    else:
+        USERNAME_REG = AUTH.username
+
+    # Initially fetch the current list of monitored subreddits.
+    MONITORED_SUBREDDITS = database.monitored_subreddits_retrieve()
+    logger.info("Stats: {:,} monitored subreddits loaded.".format(len(MONITORED_SUBREDDITS)))
+    subreddit_pushshift_probe()
+
     try:
         while True:
             try:
@@ -3548,3 +3592,11 @@ if __name__ == "__main__":
         database.CONN_MAIN.close()
         database.CONN_STATS.close()
         sys.exit()
+else:
+    # This is if the script is run as an imported module in `external.py`.
+    INSTANCE = 99
+    AGGS_ENABLED = False
+    MONITORED_SUBREDDITS = database.monitored_subreddits_retrieve()
+    connection.login(False)
+    reddit = connection.reddit
+    reddit_helper = connection.reddit_helper
