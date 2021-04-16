@@ -27,7 +27,7 @@ import connection
 import database
 import timekeeping
 from common import flair_sanitizer, logger, main_error_log, markdown_escaper
-from settings import AUTH, FILE_ADDRESS, SETTINGS
+from settings import INFO, FILE_ADDRESS, SETTINGS
 from text import *
 
 # Number of regular top-level routine runs that have been made.
@@ -2212,7 +2212,7 @@ def wikipage_creator(subreddit_name):
     :return: A PRAW Wikipage object of the statistics page.
     """
     # Define the wikipage title to edit or create.
-    page_name = "{}_statistics".format(AUTH.username[:12].lower())
+    page_name = "{}_statistics".format(INFO.username[:12].lower())
     r = reddit.subreddit(subreddit_name)
 
     # Check if the page is there by trying to get the text of the page.
@@ -2311,7 +2311,7 @@ def wikipage_collater(subreddit_name):
 
     # Compile the entire page together.
     body = WIKIPAGE_TEMPLATE.format(subreddit_name, status, statistics_section,
-                                    subscribers_section, traffic_section, AUTH.version_number,
+                                    subscribers_section, traffic_section, INFO.version_number,
                                     time_elapsed, today, connection.CONFIG.announcement,
                                     config_link)
     logger.debug("Wikipage Collater: Statistics page for r/{} collated.".format(subreddit_name))
@@ -2518,7 +2518,7 @@ def wikipage_userflair_editor(subreddit_list):
             if userflair_section is not None:
                 logger.info('Wikipage Userflair Editor: Now updating '
                             'r/{} userflair statistics.'.format(community))
-                page_address = "{}_statistics".format(AUTH.username[:12])
+                page_address = "{}_statistics".format(INFO.username[:12])
                 stat_page = reddit.subreddit(community).wiki[page_address]
                 stat_page_existing = stat_page.content_md
 
@@ -2693,7 +2693,7 @@ def wikipage_compare_bots():
             artemis_subs += artemis_data[artemis_instance]['list']
     artemis_subs = list(set(artemis_subs))
     artemis_count = len(artemis_subs)
-    bot_dictionary[AUTH.username.lower()] = (artemis_count, artemis_subs)
+    bot_dictionary[INFO.username.lower()] = (artemis_count, artemis_subs)
 
     # Look at Artemis's modded subreddits and process through all the
     # data as well.
@@ -2706,8 +2706,8 @@ def wikipage_compare_bots():
         num_subs = bot_dictionary[username][0]
 
         # Format the entries appropriately.
-        if username != AUTH.username.lower():
-            percentage = num_subs / bot_dictionary[AUTH.username.lower()][0]
+        if username != INFO.username.lower():
+            percentage = num_subs / bot_dictionary[INFO.username.lower()][0]
             line = "| u/{} | {:,} | {:.0%} |".format(username, num_subs, percentage)
         else:
             line = "| u/{} | {:,} | --- |".format(username, num_subs)
@@ -2887,7 +2887,7 @@ def widget_updater(action_data):
         return
 
     # Get the list of public subreddits that are moderated.
-    subreddit_list = connection.obtain_subreddit_public_moderated(AUTH.username)['list']
+    subreddit_list = connection.obtain_subreddit_public_moderated(INFO.username)['list']
 
     # Search for the relevant status and table widgets for editing.
     status_widget = None
@@ -2895,7 +2895,7 @@ def widget_updater(action_data):
     action_widget = None
 
     # Assign the widgets to our variables.
-    for widget in reddit.subreddit(AUTH.username).widgets.sidebar:
+    for widget in reddit.subreddit(INFO.username).widgets.sidebar:
         if isinstance(widget, praw.models.TextArea):
             if widget.id == SETTINGS.widget_statistics_update:
                 status_widget = widget
@@ -2975,7 +2975,7 @@ def widget_status_updater(index_num, list_amount, current_day, start_time):
     # Get the status widget.
     status_id = 'widget_13xm3fwr0w9mu'
     status_widget = None
-    for widget in reddit.subreddit(AUTH.username).widgets.sidebar:
+    for widget in reddit.subreddit(INFO.username).widgets.sidebar:
         if isinstance(widget, praw.models.TextArea):
             if widget.id == status_id:
                 status_widget = widget
@@ -3097,7 +3097,7 @@ def main_obtain_mentions():
     # Run a regular Reddit search for posts mentioning this bot.
     # If a post is not saved, it means we haven't acted upon it yet.
     query = ("{0} OR url:{0} OR selftext:{0} NOT author:{1} "
-             "NOT author:{0}".format(AUTH.username[:12].lower(), AUTH.creator))
+             "NOT author:{0}".format(INFO.username[:12].lower(), INFO.creator))
     for submission in reddit.subreddit('all').search(query, sort='new', time_filter='week'):
         if not submission.saved:
             full_dictionary[submission.id] = (submission.subreddit.display_name,
@@ -3121,7 +3121,7 @@ def main_obtain_mentions():
             comment = reddit.comment(id=comment_info['id'])  # Convert into PRAW object.
             try:
                 if not comment.saved:  # Don't process saved comments.
-                    if comment.subreddit.display_name.lower() != AUTH.username[:12].lower():
+                    if comment.subreddit.display_name.lower() != INFO.username[:12].lower():
                         full_dictionary[comment.id] = (comment.subreddit.display_name,
                                                        message_template.format(comment.permalink))
                         logger.debug('Obtain Mentions: Found new `{}` mention.'.format(comment.id))
@@ -3555,9 +3555,9 @@ if __name__ == "__main__":
     reddit = connection.reddit
     reddit_helper = connection.reddit_helper
     if INSTANCE != 99:
-        USERNAME_REG = "{}{}".format(AUTH.username, INSTANCE)
+        USERNAME_REG = "{}{}".format(INFO.username, INSTANCE)
     else:
-        USERNAME_REG = AUTH.username
+        USERNAME_REG = INFO.username
 
     # Initially fetch the current list of monitored subreddits.
     MONITORED_SUBREDDITS = database.monitored_subreddits_retrieve()
@@ -3593,7 +3593,8 @@ if __name__ == "__main__":
         database.CONN_STATS.close()
         sys.exit()
 else:
-    # This is if the script is run as an imported module in `external.py`.
+    # This is if the script is run as an imported
+    # module in `external.py`.
     INSTANCE = 99
     AGGS_ENABLED = False
     MONITORED_SUBREDDITS = database.monitored_subreddits_retrieve()
