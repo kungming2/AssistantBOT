@@ -2,6 +2,7 @@ pbwrap
 praw>=6.1.0
 prawcore
 psutil
+pytz
 pyyaml>=5.1.0
 rapidfuzz
 requests
