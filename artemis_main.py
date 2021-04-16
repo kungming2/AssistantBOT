@@ -21,8 +21,8 @@ from rapidfuzz import process
 import connection
 import database
 import timekeeping
-from common import logger, main_error_log, markdown_escaper
-from settings import AUTH, FILE_ADDRESS, SETTINGS
+from common import flair_template_checker, logger, main_error_log, markdown_escaper
+from settings import INFO, FILE_ADDRESS, SETTINGS
 from text import *
 
 # Number of regular top-level routine runs that have been made.
@@ -51,7 +51,7 @@ def widget_operational_status_updater():
 
     # Get the operational status widget.
     operational_widget = None
-    for widget in reddit.subreddit(AUTH.username).widgets.sidebar:
+    for widget in reddit.subreddit(INFO.username).widgets.sidebar:
         if isinstance(widget, praw.models.TextArea):
             if widget.id == SETTINGS.widget_operational_status:
                 operational_widget = widget
@@ -69,9 +69,11 @@ def widget_operational_status_updater():
 
 
 def wikipage_config(subreddit_name):
-    """
-    This will return the wikipage object that already exists or the new
-    one that was just created for the configuration page.
+    """This will return the wikipage object that already exists or the
+    new one that was just created for the configuration page.
+    This function also validates the YAML content of the configuration
+    page to ensure that it is properly formed and that the data is as
+    expected.
 
     :param subreddit_name: Name of a subreddit.
     :return: A tuple. In the first, `False` if an error was encountered,
@@ -80,7 +82,7 @@ def wikipage_config(subreddit_name):
              `False`, `None` if `True`.
     """
     # The wikipage title to edit or create.
-    page_name = "{}_config".format(AUTH.username[:12].lower())
+    page_name = "{}_config".format(INFO.username[:12].lower())
     r = reddit.subreddit(subreddit_name)
 
     # This is the max length (in characters) of the custom flair
@@ -91,6 +93,7 @@ def wikipage_config(subreddit_name):
     limit_name = SETTINGS.advanced_limit_name
     # A list of Reddit's `tags` that are flair-external.
     permitted_tags = ['nsfw', 'oc', 'spoiler']
+    permitted_days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
     # Check moderator permissions.
     current_permissions = connection.obtain_mod_permissions(subreddit_name, INSTANCE)[1]
@@ -239,13 +242,37 @@ def wikipage_config(subreddit_name):
             # Add all present flairs together and iterate over them.
             tagged_flairs = sum(subreddit_config_data['flair_tags'].values(), [])
             for flair in tagged_flairs:
-                try:
-                    regex_pattern = r'[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}'
-                    valid = re.search(regex_pattern, flair)
-                except TypeError:
-                    valid = False
-                if not valid:
+                if not flair_template_checker(flair):
                     error_msg = ('Please ensure data in `flair_tags` has '
+                                 'valid flair IDs, not `{}`.'.format(flair))
+                    return False, error_msg
+
+        # Properly check the integrity of the `flair_schedule`
+        # dictionary. It should have three-letter weekdays as
+        # keys and each have lists of flair IDs that are valid.
+        elif v == 'flair_schedule':
+            # Check to make sure that they
+            if not set(subreddit_config_data['flair_schedule'].keys()).issubset(permitted_days):
+                error_msg = ("Please ensure that days in `flair_schedule` are listed as "
+                             "**abbreviations in title case**. For example, `Sun`, `Tue`, etc.")
+                return False, error_msg
+
+            # Now we check to make sure that the contents of the tags
+            # are LISTS, rather than strings. Return an error if they
+            # contain anything other than lists.
+            for key in subreddit_config_data['flair_schedule']:
+                if type(subreddit_config_data['flair_schedule'][key]) != list:
+                    error_msg = ("Each day in `flair_schedule` should "
+                                 "contain a *list* of flair templates.")
+                    return False, error_msg
+
+            # Next we iterate over the lists to make sure they contain
+            # proper post flair IDs. If not, return an error.
+            # Add all present flairs together and iterate over them.
+            tagged_flairs = sum(subreddit_config_data['flair_schedule'].values(), [])
+            for flair in tagged_flairs:
+                if not flair_template_checker(flair):
+                    error_msg = ('Please ensure data in `flair_schedule` has '
                                  'valid flair IDs, not `{}`.'.format(flair))
                     return False, error_msg
 
@@ -517,9 +544,15 @@ def messaging_send_creator(subreddit_name, subject_type, message):
                     "mention": "New item mentioning Artemis on r/{}"
                     }
 
+    # Taking note of exempted subreddits.
+    if subject_type == "mention" and subreddit_name in connection.CONFIG.sub_mention_omit:
+        logger.info("Messaging Send Creator: "
+                    "Mention in omitted subreddit r/{}.".format(subreddit_name))
+        return
+
     # If we have a matching subject type, send a message to the creator.
     if subject_type in subject_dict:
-        creator = reddit.redditor(AUTH.creator)
+        creator = reddit.redditor(INFO.creator)
         creator.message(subject=subject_dict[subject_type].format(subreddit_name), message=message)
 
     return
@@ -625,11 +658,15 @@ def messaging_parse_flair_response(subreddit_name, response_text, post_id):
     else:
         # No exact match found. Use fuzzy matching to determine the
         # best match from the flair dictionary.
-        # Returns as tuple `('FLAIR' (text), INT)`
+        # Returns as tuple `('FLAIR' (text), INT)` or `None`.
         # If the match is higher than or equal to `min_fuzz_ratio`, then
         # assign that to `returned_template`. Otherwise, `None`.
         best_match = process.extractOne(response_text, list(lowercased_flair_dict.keys()))
-        if best_match[1] >= SETTINGS.min_fuzz_ratio:  # We are very sure this is right.
+        if best_match is None:
+            # No results at all.
+            returned_template = None
+        elif best_match[1] >= SETTINGS.min_fuzz_ratio:
+            # We are very sure this is right.
             returned_template = lowercased_flair_dict[best_match[0]]['id']
             flair_match_text = best_match[0]
             logger.info("Parse Response: > Fuzzed {:.2f}% certainty match for "
@@ -639,6 +676,7 @@ def messaging_parse_flair_response(subreddit_name, response_text, post_id):
             to_messages_save = True
             action_type = "Fuzzed"
         else:
+            # No good match found.
             returned_template = None
 
     # If there was no match (either exact or fuzzed) then this will
@@ -870,6 +908,7 @@ def flair_notifier(post_object, message_to_send):
     """This function takes a PRAW Submission object - that of a post
     that is missing flair - and messages its author about the missing
     flair. It lets them know that they should select a flair.
+    This is also used by the scheduling function to send messages.
 
     :param post_object: The PRAW Submission object of the post.
     :param message_to_send: The text of the message to the author.
@@ -888,12 +927,17 @@ def flair_notifier(post_object, message_to_send):
     if not name_to_use:
         name_to_use = "Artemis"
 
+    # Format the subject accordingly.
+    if "scheduled weekday" in message_to_send:
+        subject_line = MSG_SCHEDULE_REMOVAL_SUBJECT.format(active_subreddit)
+    else:
+        subject_line = MSG_USER_FLAIR_SUBJECT.format(active_subreddit)
+
     # Format the message and send the message.
     disclaimer_to_use = BOT_DISCLAIMER.replace('Artemis', name_to_use).format(active_subreddit)
     message_body = message_to_send + disclaimer_to_use
     try:
-        reddit.redditor(author).message(MSG_USER_FLAIR_SUBJECT.format(active_subreddit),
-                                        message_body)
+        reddit.redditor(author).message(subject_line, message_body)
         logger.debug("Notifier: Messaged u/{} about post `{}`.".format(author, post_object.id))
     except praw.exceptions.APIException:
         logger.debug('Notifier: Error sending message to u/{} about `{}`.'.format(author,
@@ -1049,8 +1093,8 @@ def main_takeout(subreddit_name):
     expiry_time = '1H'
 
     # Connect to Pastebin and authenticate.
-    pb = Pastebin(AUTH.pastebin_api_key)
-    pb.authenticate(AUTH.username[:12], AUTH.pastebin_password)
+    pb = Pastebin(INFO.pastebin_api_key)
+    pb.authenticate(INFO.username[:12], INFO.pastebin_password)
 
     # Upload the data. `1` means it's an unlisted paste.
     json_data = database.takeout(subreddit_name.lower())
@@ -1189,7 +1233,7 @@ def main_query_operations(id_list, specific_subreddit=None):
         return combined_text
 
 
-def main_post_approval(submission, template_id=None):
+def main_post_approval(submission, template_id=None, extended_data=None):
     """This function combines the flair setting and approval functions
     formerly used in both the `messaging_set_post_flair`
     and `main_flair_checker` functions in order to unify the process
@@ -1214,6 +1258,10 @@ def main_post_approval(submission, template_id=None):
                         effectively acts as a Boolean for whether or not
                         this is part of the messaging system or the main
                         flair checker.
+    :param extended_data: An optionally passed extended data package on
+                          a subreddit. This is to reduce calls to the
+                          database if that information is already
+                          present as a dictionary.
     :return: `True` if post approved and everything went well,
              `False` otherwise.
     """
@@ -1307,8 +1355,9 @@ def main_post_approval(submission, template_id=None):
     # post, then check extended data for whether or
     # not I should approve posts directly.
     # By default, we will be allowed to approve posts.
-    relevant_ext_data = database.extended_retrieve(post_subreddit)
-    approve_perm = relevant_ext_data.get('flair_enforce_approve_posts', True)
+    if extended_data is None:
+        extended_data = database.extended_retrieve(post_subreddit)
+    approve_perm = extended_data.get('flair_enforce_approve_posts', True)
 
     # Checks complete. Now this function checks the post for whether it
     # should now be given a post flair if `template_id` is not `None`.
@@ -1337,7 +1386,7 @@ def main_post_approval(submission, template_id=None):
             # triggered and the bot will check for a
             # shadow ban post that has already been up.
             logger.error('Post Approval: `403 Forbidden` error for approval. Shadowban?')
-            sb_posts = list(reddit.subreddit(AUTH.username[:12]).search("title:Shadowban",
+            sb_posts = list(reddit.subreddit(INFO.username[:12]).search("title:Shadowban",
                                                                         sort='new',
                                                                         time_filter='week'))
 
@@ -1345,7 +1394,7 @@ def main_post_approval(submission, template_id=None):
             # yet, use u/ArtemisHelper instead to submit a
             # post about this possibility.
             if len(sb_posts) == 0:
-                reddit_helper.subreddit(AUTH.username[:12]).submit(title="Possible Shadowban",
+                reddit_helper.subreddit(INFO.username[:12]).submit(title="Possible Shadowban",
                                                                    selftext='')
                 logger.info('Post Approval: Submitted a possible shadowban '
                             'alert to r/AssistantBOT.')
@@ -1371,6 +1420,40 @@ def main_post_approval(submission, template_id=None):
     advanced_set_flair_tag(submission)
 
     return True
+
+
+def main_post_schedule_reject(post_subreddit, post, post_author, schedule_data):
+    """This function takes care of sending messages to individuals who
+    submit posts on off-days from the schedule. It formats the message
+    to send to them, and sends the actual message.
+    :param post_subreddit: A PRAW subreddit object.
+    :param post: A PRAW submission object.
+    :param post_author: The author of the post, passed as a string.
+    :param schedule_data: Data from `check_flair_schedule`, passed as a
+                          tuple.
+    :return: Nothing.
+    """
+    post_id = post.id
+    post_flair_text = post.link_flair_text
+    permitted_days = schedule_data[1]
+    current_weekday = schedule_data[2]
+    database.counter_updater(post_subreddit, 'Removed unscheduled post',
+                             "main", post_id=post_id)
+    logger.info('Get: >> Removed post `{}` on r/{} posted on '
+                'off-day from the schedule. '.format(post_id, post_subreddit))
+
+    # Format message to the user, using the list of templates.
+    message_to_send = MSG_SCHEDULE_REMOVAL.format(post_author, post.subreddit.display_name,
+                                                  post_flair_text, ', '.join(permitted_days),
+                                                  current_weekday, post.permalink)
+
+    # Send a message to the author if they exist.
+    if post_author != "[deleted]":
+        flair_notifier(post, message_to_send)
+        notify = "Schedule Reject: Sent message to u/{} about unscheduled post `{}`."
+        logger.info(notify.format(post_author, post_id))
+
+    return
 
 
 def main_messaging():
@@ -1420,9 +1503,10 @@ def main_messaging():
             # Let my creator know of this mention and get the link
             # with full context of the comment.
             cmt_permalink = message.context[:-1] + "10000"
-            if message.fullname.startswith('t1_') and msg_author != AUTH.creator:
+            omit_usernames = [INFO.creator.lower()] + connection.CONFIG.users_omit
+            if message.fullname.startswith('t1_') and msg_author.lower() not in omit_usernames:
                 # Make sure my creator isn't also tagged in the comment.
-                if 'u/{}'.format(AUTH.creator) not in message.body:
+                if 'u/{}'.format(INFO.creator) not in message.body:
                     body_format = message.body.replace('\n', '\n> ')
                     message_content = "**[Link]({})**\n\n> ".format(cmt_permalink) + body_format
                     messaging_send_creator(msg_subreddit, 'mention',
@@ -1440,7 +1524,7 @@ def main_messaging():
             continue
 
         # Allow for remote maintenance actions from my creator.
-        if msg_author == AUTH.creator:
+        if msg_author == INFO.creator:
             logger.info('Messaging: Received `{}` message from my creator.'.format(msg_subject))
 
             # There are a number of remote actions available, including
@@ -1456,7 +1540,9 @@ def main_messaging():
                 database.subreddit_delete(removed_subreddit)
                 message.reply('Messaging: Removed r/{} from monitoring.'.format(removed_subreddit))
             elif 'freeze' in msg_subject:
-                # This instructs the bot to freeze a list of subreddits.
+                # This instructs the bot to freeze a list of subreddits,
+                # which means that statistics will no longer be
+                # generated for them due to inactivity.
                 # Parse the message body for a list of subreddits,
                 # then insert an attribute into extended data.
                 list_to_freeze = msg_body.lower().split(',')
@@ -1464,7 +1550,7 @@ def main_messaging():
                 for sub in list_to_freeze:
                     database.extended_insert(sub, {'freeze': True})
                     logger.info('Messaging: Froze r/{} at request of u/{}.'.format(sub,
-                                                                                   AUTH.creator))
+                                                                                   INFO.creator))
                 message.reply('Messaging: Froze these subreddits: **{}**.'.format(list_to_freeze))
             elif 'kill' in msg_subject:
                 message.reply('Messaging: Terminated process runtime.')
@@ -1477,6 +1563,8 @@ def main_messaging():
         # FLAIR ENFORCEMENT AND SELECTION
         # If the reply is to a flair enforcement message, we process it
         # and see if we can set it for the user.
+        # There is no need to respond to a scheduling message because
+        # there's nothing Artemis can do for the user about that.
         if "needs a post flair" in msg_subject and len(msg_subject) <= 88:
             # Get the subreddit name from the subject using RegEx.
             relevant_subreddit = re.findall(" r/([a-zA-Z0-9-_]*)", msg_subject)[0]
@@ -1500,9 +1588,30 @@ def main_messaging():
 
                 # If there's a matching template and the original sender
                 # of the chain is Artemis, we set the post flair.
+                # We first check to see if it's a post that is subject
+                # to schedule rules.
                 if template_result is not None and message_parent_author == USERNAME_REG:
                     relevant_submission = reddit.submission(relevant_post_id)
-                    main_post_approval(relevant_submission, template_result)
+
+                    # Get the flair schedule and check the template
+                    # against it. If there is no schedule, skip this
+                    # step completely.
+                    relevant_ext_data = database.extended_retrieve(relevant_subreddit)
+                    flair_schedule = relevant_ext_data.get('flair_schedule', None)
+                    if flair_schedule is not None:
+                        schedule_data = timekeeping.check_flair_schedule(template_result,
+                                                                         flair_schedule)
+                        # If the post is not on a schedule day,
+                        # exit early with a message to the author
+                        # informing them that the flair is not
+                        # posted on a scheduled day.
+                        if not schedule_data[0]:
+                            relevant_subreddit_obj = reddit.subreddit(relevant_subreddit)
+                            main_post_schedule_reject(relevant_subreddit_obj, relevant_submission,
+                                                      msg_author, schedule_data)
+                            continue
+
+                    main_post_approval(relevant_submission, template_result, relevant_ext_data)
                     logger.info('Messaging: > Set flair via messaging for '
                                 'post `{}`.'.format(relevant_post_id))
 
@@ -1518,7 +1627,11 @@ def main_messaging():
                          'subreddit.'.format(msg_subject, msg_author))
             data_package = {'subject': msg_subject, 'author': msg_author, 'id': message.id,
                             'message': msg_body}
-            main_messages_log(data_package=data_package, other=True)
+
+            # Save the message unless otherwise specified in a list
+            # of users defined in configuration.
+            if msg_author not in connection.CONFIG.users_reply_omit:
+                main_messages_log(data_package=data_package, other=True)
             continue
 
         # MODERATION-RELATED MESSAGING FUNCTIONS
@@ -1531,7 +1644,7 @@ def main_messaging():
 
             # Get a list of open instances.
             available = connection.CONFIG.available_instances
-            open_instance = choice(["{}{}".format(AUTH.username, x) for x in available if x != 99])
+            open_instance = choice(["{}{}".format(INFO.username, x) for x in available if x != 99])
 
             # Check against our configuration data. Exit if it matches
             # pre-existing data.
@@ -1546,7 +1659,8 @@ def main_messaging():
             if INSTANCE not in connection.CONFIG.available_instances:
                 message.reply(MSG_MOD_INIT_REDIRECT.format(relevant_subreddit, open_instance))
                 logger.info("Messaging: Current instance {} is not available for mod invites. "
-                            "Replied with redirect message to u/{}.".format(INSTANCE, open_instance))
+                            "Replied with redirect message to u/{}.".format(INSTANCE,
+                                                                            open_instance))
                 continue
 
             # Check to see if the subreddit is already being currently
@@ -1691,7 +1805,8 @@ def main_messaging():
                     # Only migrate if the two instances are different.
                     database.migration_assistant(relevant_subreddit, previous_instance, INSTANCE)
                     migration_component = MSG_MOD_INSTANCE_MIGRATION.format(relevant_subreddit,
-                                                                            previous_instance, INSTANCE)
+                                                                            previous_instance,
+                                                                            INSTANCE)
 
             # Format the reply to the subreddit, and confirm the invite.
             body = MSG_MOD_INIT_ACCEPT.format(relevant_subreddit, mode_component, template_section,
@@ -1885,7 +2000,7 @@ def main_messaging():
                                                         'userflair_statistics: True')
                 else:
                     page_template = str(ADV_DEFAULT)
-                config_page = msg_subreddit.wiki["{}_config".format(AUTH.username[:12])]
+                config_page = msg_subreddit.wiki["{}_config".format(INFO.username[:12])]
                 config_page.edit(content=page_template,
                                  reason='Reverting configuration per mod request.')
 
@@ -1907,7 +2022,7 @@ def main_messaging():
                 if "comments" in item:
                     extracted_id = re.search(r'.*?comments/(\w+)/.*', item).group(1)
                 elif "redd.it" in item:
-                    extracted_id = re.search(r'(?:redd.it/)(.*)(?:/|\b)', item).group(1)
+                    extracted_id = re.search(r'redd.it/(.*)(?:/|\b)', item).group(1)
                 else:
                     extracted_id = str(item)
                 if extracted_id:
@@ -1915,7 +2030,7 @@ def main_messaging():
 
             # If the person who sent it was my creator, allow for full
             # access. Otherwise, restrict to the subreddit it came from.
-            if msg_author == AUTH.creator:
+            if msg_author == INFO.creator:
                 subreddit_check = None
             else:
                 subreddit_check = str(relevant_subreddit)
@@ -2159,7 +2274,7 @@ def main_get_submissions(statistics_mode=False):
 
         # Check to see if the author is me or AutoModerator.
         # If it is, don't process.
-        if post_author.lower().startswith(AUTH.username[:12].lower()) \
+        if post_author.lower().startswith(INFO.username[:12].lower()) \
                 or post_author.lower() == 'automoderator':
             logger.info('Get: > Post `{}` is by me or AutoModerator. Skipped.'.format(post_id))
             continue
@@ -2290,6 +2405,49 @@ def main_get_submissions(statistics_mode=False):
                 logger.info(notify.format(post_author, post_id))
 
         else:
+            # Scheduling function to make sure posts match the schedule.
+            # The post has a flair, but we need to check its template
+            # if the subreddit has `flair_schedule` data to enforce
+            # flairs on certain days only.
+            if 'flair_schedule' in sub_ext_data:
+                try:
+                    post_flair_template = post.link_flair_template_id
+                except AttributeError:
+                    # There's a post flair but no template ID. Rare
+                    # occurrence but it does happen.
+                    logger.info('Get: >> Post `{}` has no flair template ID. '
+                                'Skipping.'.format(post_id))
+                    continue
+
+                # Check to make sure I have the proper permissions for
+                # this subreddit. Need to be able to remove posts.
+                # Otherwise, collect the mod permissions as a list.
+                current_permissions = connection.obtain_mod_permissions(post_subreddit, INSTANCE)
+                if not current_permissions[0]:
+                    continue
+                else:
+                    current_permissions_list = current_permissions[1]
+
+                # If we can process posts properly, check the flair
+                # template ID against the schedule.
+                if 'posts' in current_permissions_list or 'all' in current_permissions_list:
+                    # Gather data about the schedule and check to see
+                    # if the post flair is allowable on the schedule.
+                    scheduling_dictionary = sub_ext_data['flair_schedule']
+                    schedule_data = timekeeping.check_flair_schedule(post_flair_template,
+                                                                     scheduling_dictionary)
+                    permission_for_schedule = schedule_data[0]
+
+                    # The post does not fit our schedule. Remove and
+                    # inform the author about it.
+                    if not permission_for_schedule:
+                        post.mod.remove()
+                        main_post_schedule_reject(post_subreddit, post, post_author, schedule_data)
+                else:
+                    logger.info("Get: >> I do not have post removal permissions on r/{} to remove "
+                                "post `{}` for the schedule.".format(post_subreddit, post_id))
+                    continue
+
             # This post has a flair. We don't need to process it.
             logger.debug('Get: >> Post `{}` already has a flair. Doing nothing.'.format(post_id))
             continue
@@ -2320,9 +2478,9 @@ if __name__ == "__main__":
     reddit_helper = connection.reddit_helper
     NUMBER_TO_FETCH = connection.NUMBER_TO_FETCH
     if INSTANCE != 99:
-        USERNAME_REG = "{}{}".format(AUTH.username, INSTANCE)
+        USERNAME_REG = "{}{}".format(INFO.username, INSTANCE)
     else:
-        USERNAME_REG = AUTH.username
+        USERNAME_REG = INFO.username
 
     try:
         while True:
