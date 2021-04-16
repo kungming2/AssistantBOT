@@ -68,37 +68,47 @@ def table_creator():
     :return: `None`.
     """
     # Parse and create the main database if necessary.
-    CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS monitored "
-                        "(subreddit text, flair_enforce integer, extended text);")
-    CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS posts_filtered "
-                        "(post_id text, post_created integer);")
+    CURSOR_MAIN.execute(
+        "CREATE TABLE IF NOT EXISTS monitored "
+        "(subreddit text, flair_enforce integer, extended text);"
+    )
+    CURSOR_MAIN.execute(
+        "CREATE TABLE IF NOT EXISTS posts_filtered " "(post_id text, post_created integer);"
+    )
     CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS posts_operations (id text, operations text);")
     CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS posts_processed (post_id text);")
-    CURSOR_MAIN.execute("CREATE TABLE IF NOT EXISTS subreddit_actions "
-                        "(subreddit text, recorded_actions text);")
+    CURSOR_MAIN.execute(
+        "CREATE TABLE IF NOT EXISTS subreddit_actions " "(subreddit text, recorded_actions text);"
+    )
     CONN_MAIN.commit()
 
     # Parse and create the statistics database if necessary.
-    CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_actions "
-                         "(subreddit text, recorded_actions text);")
-    CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_activity "
-                         "(subreddit text, date text, activity text);")
-    CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_stats_posts "
-                         "(subreddit text, records text);")
-    CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_subscribers_new "
-                         "(subreddit text, records text);")
-    CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_traffic "
-                         "(subreddit text, traffic text);")
-    CURSOR_STATS.execute("CREATE TABLE IF NOT EXISTS subreddit_updated "
-                         "(subreddit text, date text);")
+    CURSOR_STATS.execute(
+        "CREATE TABLE IF NOT EXISTS subreddit_actions " "(subreddit text, recorded_actions text);"
+    )
+    CURSOR_STATS.execute(
+        "CREATE TABLE IF NOT EXISTS subreddit_activity "
+        "(subreddit text, date text, activity text);"
+    )
+    CURSOR_STATS.execute(
+        "CREATE TABLE IF NOT EXISTS subreddit_stats_posts " "(subreddit text, records text);"
+    )
+    CURSOR_STATS.execute(
+        "CREATE TABLE IF NOT EXISTS subreddit_subscribers_new " "(subreddit text, records text);"
+    )
+    CURSOR_STATS.execute(
+        "CREATE TABLE IF NOT EXISTS subreddit_traffic " "(subreddit text, traffic text);"
+    )
+    CURSOR_STATS.execute(
+        "CREATE TABLE IF NOT EXISTS subreddit_updated " "(subreddit text, date text);"
+    )
     return
 
 
 """DATABASE FUNCTIONS"""
 
 
-def database_access(command, data, cursor=None,
-                    retries=3, fetch_many=False):
+def database_access(command, data, cursor=None, retries=3, fetch_many=False):
     """This is a wrapper function that is used by functions that may be
     called by the statistics runtime on the MAIN database. A built-in
     function will wait if it encounters any lock.
@@ -160,8 +170,9 @@ def subreddit_insert(community_name, supplement):
     # If the subreddit was not previously in database, insert it in.
     # 1 is the same as `True` for flair enforcing (default setting).
     if result is None:
-        CURSOR_MAIN.execute("INSERT INTO monitored VALUES (?, ?, ?)",
-                            (community_name, 1, str(supplement)))
+        CURSOR_MAIN.execute(
+            "INSERT INTO monitored VALUES (?, ?, ?)", (community_name, 1, str(supplement))
+        )
         CONN_MAIN.commit()
         logger.info("Sub Insert: r/{} added to monitored database.".format(community_name))
 
@@ -176,15 +187,13 @@ def subreddit_delete(community_name):
     :return: Nothing.
     """
     community_name = community_name.lower()
-    CURSOR_MAIN.execute("SELECT * FROM monitored WHERE subreddit = ?",
-                        (community_name,))
+    CURSOR_MAIN.execute("SELECT * FROM monitored WHERE subreddit = ?", (community_name,))
     result = CURSOR_MAIN.fetchone()
 
     if result is not None:  # Subreddit is in database. Let's remove it.
-        CURSOR_MAIN.execute("DELETE FROM monitored WHERE subreddit = ?",
-                            (community_name,))
+        CURSOR_MAIN.execute("DELETE FROM monitored WHERE subreddit = ?", (community_name,))
         CONN_MAIN.commit()
-        logger.info('Sub Delete: r/{} deleted from monitored database.'.format(community_name))
+        logger.info("Sub Delete: r/{} deleted from monitored database.".format(community_name))
 
     return
 
@@ -232,8 +241,7 @@ def monitored_subreddits_enforce_change(subreddit_name, to_enforce):
     s_digit = int(to_enforce)
 
     # Access the database.
-    CURSOR_MAIN.execute("SELECT * FROM monitored WHERE subreddit = ?",
-                        (subreddit_name,))
+    CURSOR_MAIN.execute("SELECT * FROM monitored WHERE subreddit = ?", (subreddit_name,))
     result = CURSOR_MAIN.fetchone()
 
     # This subreddit is stored in the monitored database; modify it.
@@ -241,11 +249,16 @@ def monitored_subreddits_enforce_change(subreddit_name, to_enforce):
 
         # If the current status is different, change it.
         if result[1] != s_digit:
-            CURSOR_MAIN.execute("UPDATE monitored SET flair_enforce = ? WHERE subreddit = ?",
-                                (s_digit, subreddit_name))
+            CURSOR_MAIN.execute(
+                "UPDATE monitored SET flair_enforce = ? WHERE subreddit = ?",
+                (s_digit, subreddit_name),
+            )
             CONN_MAIN.commit()
-            logger.info("Enforce Change: r/{} flair enforce set to `{}`.".format(subreddit_name,
-                                                                                 to_enforce))
+            logger.info(
+                "Enforce Change: r/{} flair enforce set to `{}`.".format(
+                    subreddit_name, to_enforce
+                )
+            )
 
     return
 
@@ -265,8 +278,11 @@ def monitored_subreddits_enforce_status(subreddit_name):
     if result is not None:
         # This is the current status.
         flair_enforce_status = bool(result[1])
-        logger.debug("Enforce Status: r/{} flair enforce status: {}.".format(subreddit_name,
-                                                                             flair_enforce_status))
+        logger.debug(
+            "Enforce Status: r/{} flair enforce status: {}.".format(
+                subreddit_name, flair_enforce_status
+            )
+        )
         if not flair_enforce_status:
             return False
 
@@ -297,9 +313,9 @@ def delete_filtered_post(post_id):
     :param post_id: The Reddit submission's ID, as a string.
     :return: `None`.
     """
-    CURSOR_MAIN.execute('DELETE FROM posts_filtered WHERE post_id = ?', (post_id,))
+    CURSOR_MAIN.execute("DELETE FROM posts_filtered WHERE post_id = ?", (post_id,))
     CONN_MAIN.commit()
-    logger.debug('Delete Filtered Post: Deleted post `{}` from filtered database.'.format(post_id))
+    logger.debug("Delete Filtered Post: Deleted post `{}` from filtered database.".format(post_id))
 
     return
 
@@ -352,8 +368,7 @@ def extended_insert(subreddit_name, new_data):
                      or change in the extended data entry.
     :return: Nothing.
     """
-    CURSOR_MAIN.execute("SELECT * FROM monitored WHERE subreddit = ?",
-                        (subreddit_name.lower(),))
+    CURSOR_MAIN.execute("SELECT * FROM monitored WHERE subreddit = ?", (subreddit_name.lower(),))
     result = CURSOR_MAIN.fetchone()
 
     # The subreddit is in the monitored list with extended data.
@@ -382,8 +397,10 @@ def activity_retrieve(subreddit_name, month, activity_type):
                           dictionary for.
     :return: A dictionary containing the data for a particular month
     """
-    CURSOR_STATS.execute("SELECT * FROM subreddit_activity WHERE subreddit = ? AND date = ?",
-                         (subreddit_name, month))
+    CURSOR_STATS.execute(
+        "SELECT * FROM subreddit_activity WHERE subreddit = ? AND date = ?",
+        (subreddit_name, month),
+    )
     result = CURSOR_STATS.fetchone()
 
     if result is not None:
@@ -409,21 +426,23 @@ def activity_insert(subreddit_name, month, activity_type, activity_data):
                           above that we want to store.
     :return:
     """
-    CURSOR_STATS.execute("SELECT * FROM subreddit_activity WHERE subreddit = ? AND date = ?",
-                         (subreddit_name, month))
+    CURSOR_STATS.execute(
+        "SELECT * FROM subreddit_activity WHERE subreddit = ? AND date = ?",
+        (subreddit_name, month),
+    )
     result = CURSOR_STATS.fetchone()
 
     # Process the data. If there is no preexisting entry, Create a new
     # one, indexed with the activity type.
     if result is None:
-        if activity_type != 'oldest':
+        if activity_type != "oldest":
             data_component = {activity_type: activity_data}
             data_package = (subreddit_name, month, str(data_component))
-            CURSOR_STATS.execute('INSERT INTO subreddit_activity VALUES (?, ?, ?)', data_package)
+            CURSOR_STATS.execute("INSERT INTO subreddit_activity VALUES (?, ?, ?)", data_package)
             CONN_STATS.commit()
         else:  # 'oldest' posts get indexed by that phrase instead of by month.
-            data_package = (subreddit_name, 'oldest', str(activity_data))
-            CURSOR_STATS.execute('INSERT INTO subreddit_activity VALUES (?, ?, ?)', data_package)
+            data_package = (subreddit_name, "oldest", str(activity_data))
+            CURSOR_STATS.execute("INSERT INTO subreddit_activity VALUES (?, ?, ?)", data_package)
             CONN_STATS.commit()
     else:
         # We already have data for this. Note that we don't need to
@@ -436,8 +455,9 @@ def activity_insert(subreddit_name, month, activity_type, activity_data):
         if activity_type not in existing_data:
             existing_data[activity_type] = activity_data
             # Update the existing data.
-            update_command = ("UPDATE subreddit_activity SET activity = ? "
-                              "WHERE subreddit = ? AND date = ?")
+            update_command = (
+                "UPDATE subreddit_activity SET activity = ? " "WHERE subreddit = ? AND date = ?"
+            )
             CURSOR_STATS.execute(update_command, (str(existing_data), subreddit_name, month))
             CONN_STATS.commit()
 
@@ -461,15 +481,16 @@ def subscribers_insert(subreddit_name, new_data):
     """
     # Check the database first.
     subreddit_name = subreddit_name.lower()
-    CURSOR_STATS.execute("SELECT * FROM subreddit_subscribers_new WHERE subreddit = ?",
-                         (subreddit_name,))
+    CURSOR_STATS.execute(
+        "SELECT * FROM subreddit_subscribers_new WHERE subreddit = ?", (subreddit_name,)
+    )
     result = CURSOR_STATS.fetchone()
 
     # Process the data. If there is no preexisting subscribers entry,
     # create a new one.
     if result is None:
         data_package = (subreddit_name, str(new_data))
-        CURSOR_STATS.execute('INSERT INTO subreddit_subscribers_new VALUES (?, ?)', data_package)
+        CURSOR_STATS.execute("INSERT INTO subreddit_subscribers_new VALUES (?, ?)", data_package)
         CONN_STATS.commit()
     else:
         # We already have data for this subreddit, so we want to merge
@@ -498,8 +519,9 @@ def subscribers_retrieve(subreddit_name):
     """
     # Check the database first.
     subreddit_name = subreddit_name.lower()
-    CURSOR_STATS.execute("SELECT * FROM subreddit_subscribers_new WHERE subreddit = ?",
-                         (subreddit_name,))
+    CURSOR_STATS.execute(
+        "SELECT * FROM subreddit_subscribers_new WHERE subreddit = ?", (subreddit_name,)
+    )
     result = CURSOR_STATS.fetchone()
 
     # We have data, let's turn the stored string into a dictionary.
@@ -527,14 +549,15 @@ def statistics_posts_insert(subreddit_name, new_data):
     """
     # Check the database first.
     subreddit_name = subreddit_name.lower()
-    CURSOR_STATS.execute("SELECT * FROM subreddit_stats_posts WHERE subreddit = ?",
-                         (subreddit_name,))
+    CURSOR_STATS.execute(
+        "SELECT * FROM subreddit_stats_posts WHERE subreddit = ?", (subreddit_name,)
+    )
     result = CURSOR_STATS.fetchone()
 
     # We have no data.
     if result is None:
         data_package = (subreddit_name, str(new_data))
-        CURSOR_STATS.execute('INSERT INTO subreddit_stats_posts VALUES (?, ?)', data_package)
+        CURSOR_STATS.execute("INSERT INTO subreddit_stats_posts VALUES (?, ?)", data_package)
         CONN_STATS.commit()
     else:
         # There is already an entry for this subreddit in our database.
@@ -569,8 +592,9 @@ def statistics_posts_retrieve(subreddit_name):
     """
     # Check the database first.
     subreddit_name = subreddit_name.lower()
-    CURSOR_STATS.execute("SELECT * FROM subreddit_stats_posts WHERE subreddit = ?",
-                         (subreddit_name,))
+    CURSOR_STATS.execute(
+        "SELECT * FROM subreddit_stats_posts WHERE subreddit = ?", (subreddit_name,)
+    )
     result = CURSOR_STATS.fetchone()
 
     # We have data, let's turn the stored string into a dictionary.
@@ -580,8 +604,9 @@ def statistics_posts_retrieve(subreddit_name):
     return
 
 
-def counter_updater(subreddit_name, action_type, database_type,
-                    action_count=1, post_id=None, id_only=False):
+def counter_updater(
+    subreddit_name, action_type, database_type, action_count=1, post_id=None, id_only=False
+):
     """This function writes a certain number to an action log in the
     database to indicate how many times an action has been performed for
     a subreddit. For example, how many times posts have been removed,
@@ -624,7 +649,7 @@ def counter_updater(subreddit_name, action_type, database_type,
     # If the data is for a single post, we can save it to the
     # per-post ID operations log.
     if action_count == 1 and post_id:
-        counter_cursor.execute('SELECT * FROM posts_operations WHERE id = ?', (post_id,))
+        counter_cursor.execute("SELECT * FROM posts_operations WHERE id = ?", (post_id,))
         operation_result = counter_cursor.fetchone()
 
         # In case the main file is blank, recreate it. Note that the
@@ -658,15 +683,16 @@ def counter_updater(subreddit_name, action_type, database_type,
 
     # Access the database to see if we have recorded actions for this
     # subreddit already.
-    counter_cursor.execute('SELECT * FROM subreddit_actions WHERE subreddit = ?',
-                           (subreddit_name,))
+    counter_cursor.execute(
+        "SELECT * FROM subreddit_actions WHERE subreddit = ?", (subreddit_name,)
+    )
     result = counter_cursor.fetchone()
 
     # No actions data recorded. Create a new dictionary and save it.
     if result is None:
         actions_dictionary = {action_type: action_count}
         data_package = (subreddit_name, str(actions_dictionary))
-        counter_cursor.execute('INSERT INTO subreddit_actions VALUES (?, ?)', data_package)
+        counter_cursor.execute("INSERT INTO subreddit_actions VALUES (?, ?)", data_package)
         conn.commit()
     else:  # We already have an entry recorded for this.
         # Convert this back into a dictionary.
@@ -686,7 +712,7 @@ def counter_updater(subreddit_name, action_type, database_type,
     # Also save the data to the master actions dictionary.
     # That dictionary is classified under `all`.
     # This is a dictionary that indexes all actions done, per day.
-    counter_cursor.execute('SELECT * FROM subreddit_actions WHERE subreddit = ?', ('all',))
+    counter_cursor.execute("SELECT * FROM subreddit_actions WHERE subreddit = ?", ("all",))
     result = counter_cursor.fetchone()
     if result is not None:
         master_actions = literal_eval(result[1])
@@ -704,8 +730,16 @@ def counter_updater(subreddit_name, action_type, database_type,
 
         # Update the master actions data.
         update_command = "UPDATE subreddit_actions SET recorded_actions = ? WHERE subreddit = ?"
-        counter_cursor.execute(update_command, (str(master_actions), 'all'))
+        counter_cursor.execute(update_command, (str(master_actions), "all"))
         conn.commit()
+    else:
+        # Create an "all" master entry in the database for actions
+        # if one doesn't already exist. This is likely to only happen
+        # a single time per database file.
+        create_command = "INSERT INTO subreddit_actions VALUES (?, ?)"
+        counter_cursor.execute(create_command, (str({}), "all"))
+        conn.commit()
+        logger.info("Counter Updater: Created new 'all' entry in `subreddit_actions` table.")
 
     return
 
@@ -718,7 +752,7 @@ def counter_combiner(subreddit_name):
 
     :return: A dictionary with action data, otherwise, `None`.
     """
-    retrieve_command = 'SELECT * FROM subreddit_actions WHERE subreddit = ?'
+    retrieve_command = "SELECT * FROM subreddit_actions WHERE subreddit = ?"
     CURSOR_STATS.execute(retrieve_command, (subreddit_name,))
     result_s = CURSOR_STATS.fetchone()
     result_m = database_access(retrieve_command, (subreddit_name,))
@@ -769,12 +803,12 @@ def counter_collater(subreddit_name):
         # There is also an exception. If the restored percentage is
         # below ten percent, it's likely modes were switched in the
         # past and are thus not particularly valid.
-        if 'Removed post' in action_data and 'Restored post' in action_data:
-            if action_data['Removed post'] > 0:
-                restored_percentage = (action_data['Restored post'] / action_data['Removed post'])
+        if "Removed post" in action_data and "Restored post" in action_data:
+            if action_data["Removed post"] > 0:
+                restored_percentage = action_data["Restored post"] / action_data["Removed post"]
                 restored_line = "| *% Removed posts flaired and restored* | *{:.2%}* |"
                 restored_line = restored_line.format(restored_percentage)
-                if restored_percentage > .1:
+                if restored_percentage > 0.1:
                     formatted_lines.append(restored_line)
 
         # If we have no lines to make a table, just return `None`.
@@ -783,7 +817,7 @@ def counter_collater(subreddit_name):
         else:
             # Format the text content together.
             header = "\n\n| Actions | Count |\n|---------|-------|\n"
-            body = header + '\n'.join(formatted_lines)
+            body = header + "\n".join(formatted_lines)
 
             return body
 
@@ -804,22 +838,25 @@ def migration_assistant(subreddit_name, source, target):
     :return:
     """
     main_data = {}
-    main_tables = ['monitored', 'subreddit_actions']
+    main_tables = ["monitored", "subreddit_actions"]
     stats_data = {}
-    stats_tables = ['subreddit_actions', 'subreddit_stats_posts',
-                    'subreddit_subscribers_new', 'subreddit_traffic']
+    stats_tables = [
+        "subreddit_actions",
+        "subreddit_stats_posts",
+        "subreddit_subscribers_new",
+        "subreddit_traffic",
+    ]
 
     # Don't do anything if the two databases are intended
     # to be the same.
     if source == target:
         return False
 
-    database_dictionary = {'source': {'instance': source},
-                           'target': {'instance': target}}
+    database_dictionary = {"source": {"instance": source}, "target": {"instance": target}}
 
     # Make connections and cursors and store them in a dictionary.
     for database_type in database_dictionary:
-        instance_num = database_dictionary[database_type]['instance']
+        instance_num = database_dictionary[database_type]["instance"]
         if instance_num is 99:
             stats_address = FILE_ADDRESS.data_stats
             main_address = FILE_ADDRESS.data_main
@@ -830,53 +867,65 @@ def migration_assistant(subreddit_name, source, target):
         cursor_stats = conn_stats.cursor()
         conn_main = sqlite3.connect(main_address)
         cursor_main = conn_main.cursor()
-        database_dictionary[database_type] = {'instance': instance_num,
-                                              'conn_stats': conn_stats,
-                                              'cursor_stats': cursor_stats,
-                                              'conn_main': conn_main,
-                                              'cursor_main': cursor_main}
+        database_dictionary[database_type] = {
+            "instance": instance_num,
+            "conn_stats": conn_stats,
+            "cursor_stats": cursor_stats,
+            "conn_main": conn_main,
+            "cursor_main": cursor_main,
+        }
 
     # Access the main database's information first.
     # This consists of:
     #     1. The monitored information (including extended data).
     #     2. The subreddit's actions.
-    cursor_source_main = database_dictionary['source']['cursor_main']
-    conn_source_main = database_dictionary['source']['conn_main']
+    cursor_source_main = database_dictionary["source"]["cursor_main"]
+    conn_source_main = database_dictionary["source"]["conn_main"]
     for table in main_tables:
         query_command = "SELECT * FROM {} WHERE subreddit = '{}'".format(table, subreddit_name)
-        main_data[table] = database_access(query_command, data=None,
-                                           cursor=cursor_source_main, fetch_many=False)
-        logger.info('Migration Assistant: Data for r/{} retrieved '
-                    'from main table `{}`.'.format(subreddit_name, table))
+        main_data[table] = database_access(
+            query_command, data=None, cursor=cursor_source_main, fetch_many=False
+        )
+        logger.info(
+            "Migration Assistant: Data for r/{} retrieved "
+            "from main table `{}`.".format(subreddit_name, table)
+        )
 
     # Access the statistics database's information next.
     # This consists of almost all tables EXCEPT `subreddit_updated`.
-    cursor_source_stats = database_dictionary['source']['cursor_stats']
-    conn_source_stats = database_dictionary['source']['conn_stats']
+    cursor_source_stats = database_dictionary["source"]["cursor_stats"]
+    conn_source_stats = database_dictionary["source"]["conn_stats"]
     for table in stats_tables:
         query_command = "SELECT * FROM {} WHERE subreddit = '{}'".format(table, subreddit_name)
-        stats_data[table] = database_access(query_command, data=None,
-                                            cursor=cursor_source_stats, fetch_many=False)
-        logger.info('Migration Assistant: Data for r/{} retrieved '
-                    'from stats table `{}`.'.format(subreddit_name, table))
+        stats_data[table] = database_access(
+            query_command, data=None, cursor=cursor_source_stats, fetch_many=False
+        )
+        logger.info(
+            "Migration Assistant: Data for r/{} retrieved "
+            "from stats table `{}`.".format(subreddit_name, table)
+        )
     # Subreddit activity data is accessed and stored separately, as
     # there are multiple lines. This returns a list of tuples.
     activity_query = "SELECT * FROM subreddit_activity WHERE subreddit = ?"
-    stats_activity_data = database_access(activity_query, (subreddit_name,), cursor=cursor_source_stats,
-                                          fetch_many=True)
+    stats_activity_data = database_access(
+        activity_query, (subreddit_name,), cursor=cursor_source_stats, fetch_many=True
+    )
 
     # Having obtained the data, write it to the target database.
-    cursor_target_main = database_dictionary['target']['cursor_main']
-    conn_target_main = database_dictionary['target']['conn_main']
+    cursor_target_main = database_dictionary["target"]["cursor_main"]
+    conn_target_main = database_dictionary["target"]["conn_main"]
     # Insert main data.
     for table in main_tables:
         # Check if data already exists for this subreddit in the main.
         query_command = "SELECT * FROM {} WHERE subreddit = '{}'".format(table, subreddit_name)
-        exist_check = database_access(query_command, data=None,
-                                      cursor=cursor_target_main, fetch_many=False)
+        exist_check = database_access(
+            query_command, data=None, cursor=cursor_target_main, fetch_many=False
+        )
         if exist_check:
-            logger.info('Migration Assistant: Data for r/{} already exists in target '
-                        'main table `{}`. Skipped.'.format(subreddit_name, table))
+            logger.info(
+                "Migration Assistant: Data for r/{} already exists in target "
+                "main table `{}`. Skipped.".format(subreddit_name, table)
+            )
             continue
         else:
             payload = main_data[table]  # The actual data to insert.
@@ -884,19 +933,24 @@ def migration_assistant(subreddit_name, source, target):
                 insert_command = "INSERT INTO {} VALUES {}".format(table, payload)
                 cursor_target_main.execute(insert_command)
                 conn_target_main.commit()
-                logger.info('Migration Assistant: Data inserted for r/{} '
-                            'into target main table `{}`.'.format(subreddit_name, table))
+                logger.info(
+                    "Migration Assistant: Data inserted for r/{} "
+                    "into target main table `{}`.".format(subreddit_name, table)
+                )
     # Insert stats data.
-    cursor_target_stats = database_dictionary['target']['cursor_stats']
-    conn_target_stats = database_dictionary['target']['conn_stats']
+    cursor_target_stats = database_dictionary["target"]["cursor_stats"]
+    conn_target_stats = database_dictionary["target"]["conn_stats"]
     for table in stats_tables:
         # Check if data already exists for this subreddit in the main.
         query_command = "SELECT * FROM {} WHERE subreddit = '{}'".format(table, subreddit_name)
-        exist_check = database_access(query_command, data=None,
-                                      cursor=cursor_target_stats, fetch_many=False)
+        exist_check = database_access(
+            query_command, data=None, cursor=cursor_target_stats, fetch_many=False
+        )
         if exist_check:
-            logger.info('Migration Assistant: Data for r/{} already exists in target '
-                        'stats table `{}`. Skipped.'.format(subreddit_name, table))
+            logger.info(
+                "Migration Assistant: Data for r/{} already exists in target "
+                "stats table `{}`. Skipped.".format(subreddit_name, table)
+            )
             continue
         else:
             payload = stats_data[table]  # The actual data to insert.
@@ -906,38 +960,52 @@ def migration_assistant(subreddit_name, source, target):
                 insert_command = "INSERT INTO {} VALUES ({})".format(table, value_filler)
                 cursor_target_stats.execute(insert_command, payload)
                 conn_target_stats.commit()
-                logger.info('Migration Assistant: Data inserted for r/{} '
-                            'into target stats table `{}`.'.format(subreddit_name, table))
+                logger.info(
+                    "Migration Assistant: Data inserted for r/{} "
+                    "into target stats table `{}`.".format(subreddit_name, table)
+                )
     # Insert stats activity data.
     for line in stats_activity_data:
         month = line[1]
         activity_query = "SELECT * FROM subreddit_activity WHERE subreddit = ? AND date = ?"
-        exist_check = database_access(activity_query, data=(subreddit_name, month),
-                                      cursor=cursor_target_stats, fetch_many=False)
+        exist_check = database_access(
+            activity_query,
+            data=(subreddit_name, month),
+            cursor=cursor_target_stats,
+            fetch_many=False,
+        )
         if exist_check:
-            logger.info('Migration Assistant: Data for r/{} already exists in '
-                        '`subreddit_activity` for month {}. Skipped.'.format(subreddit_name, month))
+            logger.info(
+                "Migration Assistant: Data for r/{} already exists in "
+                "`subreddit_activity` for month {}. Skipped.".format(subreddit_name, month)
+            )
             continue
         else:
-            cursor_target_stats.execute('INSERT INTO subreddit_activity VALUES (?, ?, ?)', line)
+            cursor_target_stats.execute("INSERT INTO subreddit_activity VALUES (?, ?, ?)", line)
             conn_target_stats.commit()
-            logger.info('Migration Assistant: Data inserted for r/{} '
-                        'into `subreddit_activity` for month {}.'.format(subreddit_name, month))
+            logger.info(
+                "Migration Assistant: Data inserted for r/{} "
+                "into `subreddit_activity` for month {}.".format(subreddit_name, month)
+            )
 
     # Delete the data from the source databases.
     for table in main_tables:
         delete_command = "DELETE FROM {} WHERE subreddit = ?".format(table)
         cursor_source_main.execute(delete_command, (subreddit_name,))
         conn_source_main.commit()
-        logger.info('Migration Assistant: Data removed for r/{} '
-                    'from source main table `{}`.'.format(subreddit_name, table))
-    stats_tables += ['subreddit_activity']  # Add `subreddit_activity`
+        logger.info(
+            "Migration Assistant: Data removed for r/{} "
+            "from source main table `{}`.".format(subreddit_name, table)
+        )
+    stats_tables += ["subreddit_activity"]  # Add `subreddit_activity`
     for table in stats_tables:
         delete_command = "DELETE FROM {} WHERE subreddit = ?".format(table)
         cursor_source_stats.execute(delete_command, (subreddit_name,))
         conn_source_stats.commit()
-        logger.info('Migration Assistant: Data removed for r/{} '
-                    'from source stats table `{}`.'.format(subreddit_name, table))
+        logger.info(
+            "Migration Assistant: Data removed for r/{} "
+            "from source stats table `{}`.".format(subreddit_name, table)
+        )
 
     return
 
@@ -954,33 +1022,35 @@ def takeout(subreddit_name):
     """
 
     # Package the actions and create the dictionary.
-    master_dictionary = {'actions': counter_combiner(subreddit_name),
-                         'activity': {},
-                         'settings': extended_retrieve(subreddit_name)}
+    master_dictionary = {
+        "actions": counter_combiner(subreddit_name),
+        "activity": {},
+        "settings": extended_retrieve(subreddit_name),
+    }
 
     # Package the activity.
-    CURSOR_STATS.execute('SELECT * FROM subreddit_activity WHERE subreddit = ?', (subreddit_name,))
+    CURSOR_STATS.execute("SELECT * FROM subreddit_activity WHERE subreddit = ?", (subreddit_name,))
     results = CURSOR_STATS.fetchall()
     if results is not None:
         for entry in results:
             contents = literal_eval(entry[2])
-            master_dictionary['activity'][entry[1]] = contents
+            master_dictionary["activity"][entry[1]] = contents
 
     # Package the posts.
     posts_stats = statistics_posts_retrieve(subreddit_name)
     if posts_stats is not None:
-        master_dictionary['statistics_posts'] = posts_stats
+        master_dictionary["statistics_posts"] = posts_stats
 
     # Package the subscribers.
     subbed_stats = subscribers_retrieve(subreddit_name)
     if subbed_stats is not None:
-        master_dictionary['subscribers'] = subbed_stats
+        master_dictionary["subscribers"] = subbed_stats
 
     # Package the traffic.
     CURSOR_STATS.execute("SELECT * FROM subreddit_traffic WHERE subreddit = ?", (subreddit_name,))
     traffic_result = CURSOR_STATS.fetchone()
     if traffic_result is not None:
-        master_dictionary['traffic'] = literal_eval(traffic_result[1])
+        master_dictionary["traffic"] = literal_eval(traffic_result[1])
 
     # Convert to JSON.
     master_json = json_dumps(master_dictionary, sort_keys=True, indent=4)
@@ -1005,33 +1075,37 @@ def cleanup():
 
     # Access the `processed` database, order the posts by oldest first,
     # and then only keep the above number of entries.
-    delete_command = ("DELETE FROM posts_processed WHERE post_id NOT IN "
-                      "(SELECT post_id FROM posts_processed ORDER BY post_id DESC LIMIT ?)")
+    delete_command = (
+        "DELETE FROM posts_processed WHERE post_id NOT IN "
+        "(SELECT post_id FROM posts_processed ORDER BY post_id DESC LIMIT ?)"
+    )
     CURSOR_MAIN.execute(delete_command, (SETTINGS.entries_to_keep,))
     CONN_MAIN.commit()
-    logger.info('Cleanup: Last {:,} processed database '
-                'entries kept.'.format(SETTINGS.entries_to_keep))
+    logger.info(
+        "Cleanup: Last {:,} processed database " "entries kept.".format(SETTINGS.entries_to_keep)
+    )
 
     # Access the `operations` database, and order the entries by
     # oldest first.
-    delete_command = ("DELETE FROM posts_operations WHERE id NOT IN "
-                      "(SELECT id FROM posts_operations ORDER BY id DESC LIMIT ?)")
+    delete_command = (
+        "DELETE FROM posts_operations WHERE id NOT IN "
+        "(SELECT id FROM posts_operations ORDER BY id DESC LIMIT ?)"
+    )
     CURSOR_MAIN.execute(delete_command, (ops_to_keep,))
     CONN_MAIN.commit()
-    logger.info('Cleanup: Last {:,} operations database '
-                'entries kept.'.format(ops_to_keep))
+    logger.info("Cleanup: Last {:,} operations database " "entries kept.".format(ops_to_keep))
 
     # Clean up the logs. Keep only the last `lines_to_keep` lines.
-    with open(FILE_ADDRESS.logs, "r", encoding='utf-8') as f:
+    with open(FILE_ADDRESS.logs, "r", encoding="utf-8") as f:
         lines_entries = [line.rstrip("\n") for line in f]
 
     # If there are more lines than what we want to keep, truncate the
     # entire file to our limit.
     if len(lines_entries) > lines_to_keep:
         lines_entries = lines_entries[(-1 * lines_to_keep):]
-        with open(FILE_ADDRESS.logs, "w", encoding='utf-8') as f:
+        with open(FILE_ADDRESS.logs, "w", encoding="utf-8") as f:
             f.write("\n".join(lines_entries))
-        logger.info('Cleanup: Last {:,} log entries kept.'.format(lines_to_keep))
+        logger.info("Cleanup: Last {:,} log entries kept.".format(lines_to_keep))
 
     return
 
@@ -1048,11 +1122,13 @@ def cleanup_updated():
 
     # Access the `updated` database, order the entries by their date,
     # and then only keep the above number of entries.
-    delete_command = ("DELETE FROM subreddit_updated WHERE date NOT IN "
-                      "(SELECT date FROM subreddit_updated ORDER BY date DESC LIMIT ?)")
+    delete_command = (
+        "DELETE FROM subreddit_updated WHERE date NOT IN "
+        "(SELECT date FROM subreddit_updated ORDER BY date DESC LIMIT ?)"
+    )
     CURSOR_STATS.execute(delete_command, (updated_to_keep,))
     CONN_STATS.commit()
-    logger.info('Cleanup: Last {:,} updated database entries kept.'.format(updated_to_keep))
+    logger.info("Cleanup: Last {:,} updated database entries kept.".format(updated_to_keep))
 
     return
 
