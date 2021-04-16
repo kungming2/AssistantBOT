@@ -4,6 +4,9 @@
 formatting.
 """
 import datetime
+import time
+
+import pytz
 
 from settings import SETTINGS
 
@@ -44,7 +47,7 @@ def convert_to_unix(date_string):
     :param date_string: Any date formatted as YYYY-MM-DD.
     :return: The string timestamp of MIDNIGHT that day in UTC.
     """
-    year, month, day = date_string.split('-')
+    year, month, day = date_string.split("-")
     dt = datetime.datetime(int(year), int(month), int(day))
     utc_timestamp = int(dt.replace(tzinfo=datetime.timezone.utc).timestamp())
 
@@ -131,10 +134,45 @@ def get_historical_series_days(list_of_days):
         # If we can get an extra *full* month past this, get it.
         if len(list_of_days) > days_limit + 31:
             first_day = list_of_days[(-1 * days_limit):][0]
-            initial_start = first_day[:-3] + '-01'
+            initial_start = first_day[:-3] + "-01"
             list_of_days = list_of_days[list_of_days.index(initial_start):]
         else:
             # Otherwise, just return the last 90 days.
             list_of_days = list_of_days[(-1 * days_limit):]
 
     return list_of_days
+
+
+def check_flair_schedule(flair_template_id, flair_days_dict):
+    """This function checks a given flair template ID against
+    a dictionary of what flairs are allowed on what weekdays (stored in
+    the advanced configuration).
+    :return: If it is allowed, then the function
+             returns `True`. Otherwise, `False`.
+    """
+    west_timezone = "Pacific/Auckland"
+    east_timezone = "Pacific/Honolulu"
+    current_moment = time.time()
+    current_weekday = datetime.date.today().strftime("%a")
+
+    # Define the time boundaries of the day by getting the weekday
+    # abbreviated names in the bounded locales. (e.g. Mon, Wed, Sat)
+    # Get the western bound of the weekday (latest time).
+    tz_west = pytz.timezone(west_timezone)
+    west_bound = datetime.datetime.fromtimestamp(current_moment, tz_west).strftime("%a")
+    # Get the eastern bound of the weekday (earliest time).
+    tz_east = pytz.timezone(east_timezone)
+    east_bound = datetime.datetime.fromtimestamp(current_moment, tz_east).strftime("%a")
+
+    # Get the permitted days from the flair dictionary.
+    permitted_days = [key for key, value in flair_days_dict.items() if flair_template_id in value]
+
+    # Check the two day boundaries and see if there's an overlap. If
+    # there is an overlap, then it is permitted to post this flair.
+    current_days = list({east_bound, west_bound})
+    overlap_days = [value for value in current_days if value in permitted_days]
+
+    if overlap_days:
+        return True, permitted_days, current_weekday
+    else:
+        return False, permitted_days, current_weekday
