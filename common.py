@@ -9,7 +9,7 @@ import logging
 import re
 import time
 
-from settings import AUTH, FILE_ADDRESS
+from settings import INFO, FILE_ADDRESS
 
 """INITIALIZATION INFORMATION"""
 
@@ -27,12 +27,13 @@ def main_error_log(entry):
 
     # Open the file for the error log in appending mode.
     # Then add the error entry formatted our way.
-    with open(FILE_ADDRESS.error, 'a+', encoding='utf-8') as f:
+    with open(FILE_ADDRESS.error, "a+", encoding="utf-8") as f:
         error_date_format = datetime.datetime.utcnow().strftime("%Y-%m-%dT%I:%M:%SZ")
-        bot_format = "Artemis v{}".format(AUTH.version_number)
-        entry = entry.replace('\n', '\n    ')  # Indent the code.
-        f.write("\n---------------\n### {} ({})\n{}\n".format(error_date_format, bot_format,
-                                                              entry))
+        bot_format = "Artemis v{}".format(INFO.version_number)
+        entry = entry.replace("\n", "\n    ")  # Indent the code.
+        f.write(
+            "\n---------------\n### {} ({})\n{}\n".format(error_date_format, bot_format, entry)
+        )
 
     return
 
@@ -40,8 +41,8 @@ def main_error_log(entry):
 """LOGGER SETUP"""
 
 # Set up the logger. By default only display INFO or higher levels.
-log_format = '%(levelname)s: %(asctime)s - [Artemis] v{} %(message)s'
-logformatter = log_format.format(AUTH.version_number)
+log_format = "%(levelname)s: %(asctime)s - [Artemis] v{} %(message)s"
+logformatter = log_format.format(INFO.version_number)
 logging.basicConfig(format=logformatter, level=logging.INFO)
 
 # Set the logging time to UTC.
@@ -50,7 +51,7 @@ logger = logging.getLogger(__name__)
 
 # Define the logging handler (the file to write to.)
 # By default only log INFO level messages or higher.
-handler = logging.FileHandler(FILE_ADDRESS.logs, 'a', 'utf-8')
+handler = logging.FileHandler(FILE_ADDRESS.logs, "a", "utf-8")
 handler.setLevel(logging.INFO)
 
 # Set the time format in the logging handler.
@@ -96,17 +97,19 @@ def flair_sanitizer(text_to_parse, change_case=True):
     text_to_parse = text_to_parse.strip()
     if change_case:
         text_to_parse = text_to_parse.lower()
-    text_to_parse = re.sub(r':\S+:', '', text_to_parse)
+    text_to_parse = re.sub(r":\S+:", "", text_to_parse)
 
     # Account for Unicode emoji by deleting them as well.
     # uFE0F is an invisible character marking emoji.
-    reg = re.compile(u'[\U0001F300-\U0001F64F'
-                     u'\U0001F680-\U0001F6FF'
-                     u'\U0001F7E0-\U0001F7EF'
-                     u'\U0001F900-\U0001FA9F'
-                     u'\uFE0F\u2600-\u26FF\u2700-\u27BF]',
-                     re.UNICODE)
-    text_to_parse = reg.sub('', text_to_parse).strip()
+    reg = re.compile(
+        u"[\U0001F300-\U0001F64F"
+        u"\U0001F680-\U0001F6FF"
+        u"\U0001F7E0-\U0001F7EF"
+        u"\U0001F900-\U0001FA9F"
+        u"\uFE0F\u2600-\u26FF\u2700-\u27BF]",
+        re.UNICODE,
+    )
+    text_to_parse = reg.sub("", text_to_parse).strip()
 
     return text_to_parse
 
@@ -117,9 +120,25 @@ def markdown_escaper(input_text):
     :param input_text: The text we want to work with.
     :return: `input_text`, but with the characters escaped.
     """
-    characters_to_replace = ['[', ']', '`', '*', '_']
+    characters_to_replace = ["[", "]", "`", "*", "_"]
 
     for character in characters_to_replace:
-        input_text = input_text.replace(character, '\{}'.format(character))
+        input_text = input_text.replace(character, "\{}".format(character))
 
     return input_text
+
+
+def flair_template_checker(input_text):
+    """Small function that checks whether a given input is valid as a
+    Reddit post flair ID.
+    """
+    try:
+        regex_pattern = r"^[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}$"
+        valid = re.search(regex_pattern, input_text)
+    except TypeError:
+        return False
+
+    if valid:
+        return True
+    else:
+        return False
