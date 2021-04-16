@@ -5,9 +5,11 @@ Artemis in its interactions with moderators, regular users, and wiki
 pages.
 """
 
-BOT_DISCLAIMER = ("\n\n---\n^Artemis: ^a ^moderation ^assistant ^for ^r/{0} ^| "
-                  "[^Contact ^r/{0} ^mods](https://www.reddit.com/message/compose?to=%2Fr%2F{0}) "
-                  "^| [^Bot ^Info/Support](https://www.reddit.com/r/AssistantBOT/)")
+BOT_DISCLAIMER = (
+    "\n\n---\n^Artemis: ^a ^moderation ^assistant ^for ^r/{0} ^| "
+    "[^Contact ^r/{0} ^mods](https://www.reddit.com/message/compose?to=%2Fr%2F{0}) "
+    "^| [^Bot ^Info/Support](https://www.reddit.com/r/AssistantBOT/)"
+)
 
 # These are responses to moderator actions.
 MSG_MOD_INIT_ACCEPT = """
@@ -67,7 +69,7 @@ profiles/profile-moderation-tools) and Artemis is therefore unusable on them.
 
 If this is in error, please make a comment on r/AssistantBOT with this subreddit's name. Thanks!
 """
-MSG_MOD_INIT_QUARANTINED = '''
+MSG_MOD_INIT_QUARANTINED = """
 ☣️ It appears that this subreddit may be a [quarantined community]\
 (https://www.reddithelp.com/en/categories/rules-reporting/account-and-community-restrictions\
 /quarantined-subreddits). Unfortunately, Reddit explicitly makes it difficult, if not impossible, \
@@ -75,7 +77,7 @@ to [access data about quarantined communities through its public API](https://re
 Consequently, Artemis is unable to assist quarantined communities.
 
 Sorry for any inconvenience!
-'''
+"""
 MSG_MOD_INIT_REDIRECT = """
 🈵 Thanks for inviting me to assist the r/{0} \
 [moderator team](https://www.reddit.com/r/{0}/about/moderators)! \
@@ -107,7 +109,7 @@ MSG_MOD_INIT_NON_MINIMUM = """
 (https://www.reddit.com/r/{}/wiki/assistantbot_statistics)**. \
 (I recommend bookmarking this page for easy access.)
 """
-MSG_MOD_INIT_STRICT = '''
+MSG_MOD_INIT_STRICT = """
 🔨 Since I have the `posts` moderator permission, I will *remove* posts \
 without any flair and automatically \
 *restore and approve* them once a flair is selected. Unflaired posts older than 24 hours are \
@@ -120,13 +122,13 @@ throwaway account if you are testing my functions out.
 
 **I also recommend turning on the `Require post flair` setting in this subreddit's \
 [post requirements](https://new.reddit.com/r/{0}/about/settings) for best results.**
-'''
-MSG_MOD_INIT_MESSAGING = '''
+"""
+MSG_MOD_INIT_MESSAGING = """
 📨 Since I also have the `flair` moderator permission, submitters can simply reply to my \
 flair enforcement messages with the text of the flair they want to select, and I will \
 automatically *assign that flair to and approve* their post.
-'''
-MSG_MOD_INIT_NO_FLAIRS = '''
+"""
+MSG_MOD_INIT_NO_FLAIRS = """
 ---
 
 🈳 **It appears that there are no public post flairs associated with this subreddit.** \
@@ -143,32 +145,36 @@ line to re-enable flair enforcing.
 
 🔒 **I have disabled flair enforcing on the subreddit for now since there are no post flairs.** \
 You can re-enable flair enforcing by following the instructions below.
-'''
-MSG_MOD_INIT_NEED_WIKI = '''
+"""
+MSG_MOD_INIT_NEED_WIKI = """
 😕 It appears that I do not have the `wiki` mod permission to create and update a subreddit's \
 statistics page. If you would still like me to assist the mod team with statistics, please grant \
 me the `wiki` [mod permission here](https://www.reddit.com/r/{}/about/moderators). Thanks!
-'''
-MSG_MOD_INSTANCE_MIGRATION = '''
+"""
+MSG_MOD_INSTANCE_MIGRATION = """
 ---
 
-📦 It appears that this subreddit was previously monitored by an instance of Artemis (`{0}`). \
-Any data associated with r/{1} has been ported from the old instance's databases for use with \
+📦 It appears that this subreddit was previously monitored by an instance of Artemis (`{1}`). \
+Any data associated with r/{0} has been ported from the old instance's databases for use with \
 this instance's (`{2}`).
-'''
-MSG_MOD_RESP_ENABLE = ("🔓 Flair enforcing is now **ENABLED** on r/{}. "
-                       "Artemis will send reminder messages to users "
-                       "who submit posts without selecting a post flair.")
-MSG_MOD_RESP_DISABLE = ("🔒 Flair enforcing is now **DISABLED** on r/{}. "
-                        "Artemis will *NOT* send reminder messages "
-                        "to users who submit posts without selecting a post flair.")
-MSG_MOD_RESP_USERFLAIR = '👥 Userflair statistics gathering is now **{}** on r/{}.'
-MSG_MOD_RESP_USERFLAIR_NEED_FLAIR = '''
+"""
+MSG_MOD_RESP_ENABLE = (
+    "🔓 Flair enforcing is now **ENABLED** on r/{}. "
+    "Artemis will send reminder messages to users "
+    "who submit posts without selecting a post flair."
+)
+MSG_MOD_RESP_DISABLE = (
+    "🔒 Flair enforcing is now **DISABLED** on r/{}. "
+    "Artemis will *NOT* send reminder messages "
+    "to users who submit posts without selecting a post flair."
+)
+MSG_MOD_RESP_USERFLAIR = "👥 Userflair statistics gathering is now **{}** on r/{}."
+MSG_MOD_RESP_USERFLAIR_NEED_FLAIR = """
 😕 It appears that I do not have the `flair` mod permission to gather userflair statistics. \
 If you would still like me to assist with userflair statistics, please grant me the `flair` \
 [mod permission here](https://www.reddit.com/r/{}/about/moderators) and resend this message. \
 Thanks!
-'''
+"""
 MSG_MOD_STATISTICS_FIRST = """
 Hey there moderators of r/{0}!
 
@@ -185,7 +191,7 @@ This wiki page is by default only visible to moderators and is *not* listed on t
 
 Have a good day!
 """
-MSG_MOD_TAKEOUT = '''
+MSG_MOD_TAKEOUT = """
 🥡 Here's your takeout data from Artemis formatted in [JSON](https://en.wikipedia.org/wiki/JSON),\
  an open-standard file format that is easy for humans to read and write and easy for machines to \
 parse and generate.
@@ -196,19 +202,19 @@ by those who have the link. The data will be automatically deleted after that, s
 it before deletion.
 
 #### [Artemis Takeout Data for r/{}]({})
-'''
-MSG_MOD_TAKEOUT_NONE = '''
+"""
+MSG_MOD_TAKEOUT_NONE = """
 🍽️ Unfortunately, there doesn't appear to be any data from r/{} in my database to takeout.
-'''
-MSG_MOD_QUERY_NONE = '''
+"""
+MSG_MOD_QUERY_NONE = """
 🤔 Unfortunately, there doesn't appear to be any valid data in my database from your query.
-'''
-MSG_MOD_LEAVE = '''
+"""
+MSG_MOD_LEAVE = """
 👋 Artemis will no longer be active on r/{}. Have a good day!
-'''
+"""
 # The following are messages to users reminding them to use post flairs.
 MSG_USER_FLAIR_SUBJECT = "[Notification] ⚠️ Your post on r/{} needs a post flair!"
-MSG_USER_FLAIR_BODY = '''
+MSG_USER_FLAIR_BODY = """
 Hey there u/{0},
 
 Thanks for submitting your post to r/{1}!
@@ -245,18 +251,26 @@ View a GIF below to show you how!
 Post flairs help keep this community organized and allow subscribers to easily sort through the \
 posts they want to see. [Please contact the mods of r/{1} if you have any questions.]({4}) \
 Thank you very much, and {6}!
-'''
-MSG_USER_FLAIR_BODY_MESSAGING = ("\n* ↩️ *or* replying to this message with just the text of a "
-                                 "flair listed below.\n    * Capitalization does not matter.")
-MSG_USER_FLAIR_MODMAIL_LINK = ("https://www.reddit.com/message/compose?to=%2Fr%2F{}&subject="
-                               "About+My+Unflaired+Post&message="
-                               "About+my+post+%5Bhere%5D%28{}%29...")
-MSG_USER_FLAIR_REMOVAL = ("**Your post has been removed but will be automatically restored if you "
-                          "select a flair for it within 24 hours.** "
-                          "We apologize for the inconvenience.\n\n")
-MSG_USER_FLAIR_REMOVAL_NO_APPROVE = ("**Your post has been removed but may be restored by a "
-                                     "moderator as soon as possible if you select a flair for it"
-                                     ".**  We apologize for the inconvenience.\n\n")
+"""
+MSG_USER_FLAIR_BODY_MESSAGING = (
+    "\n* ↩️ *or* replying to this message with just the text of a "
+    "flair listed below.\n    * Capitalization does not matter."
+)
+MSG_USER_FLAIR_MODMAIL_LINK = (
+    "https://www.reddit.com/message/compose?to=%2Fr%2F{}&subject="
+    "About+My+Unflaired+Post&message="
+    "About+my+post+%5Bhere%5D%28{}%29..."
+)
+MSG_USER_FLAIR_REMOVAL = (
+    "**Your post has been removed but will be automatically restored if you "
+    "select a flair for it within 24 hours.** "
+    "We apologize for the inconvenience.\n\n"
+)
+MSG_USER_FLAIR_REMOVAL_NO_APPROVE = (
+    "**Your post has been removed but may be restored by a "
+    "moderator as soon as possible if you select a flair for it"
+    ".**  We apologize for the inconvenience.\n\n"
+)
 MSG_USER_FLAIR_APPROVAL = """
 Hey there u/{},
 
@@ -265,6 +279,23 @@ Hey there u/{},
 {}!
 """
 MSG_USER_FLAIR_APPROVAL_STRICT = "It has been approved and is now fully visible on r/{}."
+# Template for removing an unscheduled post.
+MSG_SCHEDULE_REMOVAL_SUBJECT = "[Notification] 🗓️️ Your post on r/{} is not on a scheduled day."
+MSG_SCHEDULE_REMOVAL = """
+Hey there u/{0},
+
+Thanks for submitting [your post]({5}) to r/{1}! This community asks \
+that posts flaired as **{2}** only be submitted on the following \
+weekdays:
+
+* **{3}**
+
+Your post has been removed as it is currently **{4}**, and feel free \
+to check out [r/{1}'s community rules]\
+(https://www.reddit.com/r/{1}/about/rules) for more information. \ 
+Please re-submit your {2} post on a suitable scheduled weekday and \
+thank you for stopping by!
+"""
 # These are templates used on the statistics wiki pages.
 WIKIPAGE_BLANK = """
 # Statistics by Artemis (u/AssistantBOT)
@@ -273,7 +304,7 @@ WIKIPAGE_BLANK = """
 📊 *This statistics page will be updated after [midnight UTC](https://time.is/UTC) if this \
 subreddit has at least {} subscribers.*
 """
-WIKIPAGE_TEMPLATE = '''
+WIKIPAGE_TEMPLATE = """
 
 # Statistics by Artemis (u/AssistantBOT)
 
@@ -308,17 +339,47 @@ WIKIPAGE_TEMPLATE = '''
 ## [Traffic](https://www.reddit.com/r/{0}/about/traffic/)
 
 {4}
-'''
+"""
 # This is a list of goodbye phrases.
 # Artemis chooses a random one when sending a message.
-GOODBYE_PHRASES = ['Adieu', 'Adiós', 'All the best', 'Au revoir', 'Best regards', 'Cheers', 'Ciao',
-                   'Farewell', 'Goodbye', 'Hasta la vista', 'Have a fantastic day',
-                   'Have a good one', 'Have a great day', 'Have a nice day',
-                   'Keep it real', 'Live long and prosper',
-                   'Mahalo', 'May the odds be ever in your favor', 'Namaste', 'Peace', 'Regards',
-                   'Sayonara', 'See ya', 'So long', 'Stay awesome', 'Stay healthy',
-                   'Stay safe', 'Stay well', 'Take care', 'Take it easy', 'To infinity and beyond',
-                   'Toodeloo', 'Tschüss', 'Until next time']
+GOODBYE_PHRASES = [
+    "Adieu",
+    "Adiós",
+    "All the best",
+    "Au revoir",
+    "Best regards",
+    "Cheers",
+    "Ciao",
+    "Farewell",
+    "Goodbye",
+    "Hasta la vista",
+    "Have a fantastic day",
+    "Have a good one",
+    "Have a great day",
+    "Have a nice day",
+    "Keep it real",
+    "Live long and prosper",
+    "Mahalo",
+    "May the odds be ever in your favor",
+    "Namaste",
+    "Peace",
+    "Regards",
+    "Sayonara",
+    "See ya",
+    "So long",
+    "Stay awesome",
+    "Stay classy",
+    "Stay healthy",
+    "Stay safe",
+    "Stay well",
+    "Take care",
+    "Take it easy",
+    "Thanks for stopping by",
+    "To infinity and beyond",
+    "Toodeloo",
+    "Tschüss",
+    "Until next time"
+]
 # This is the default Artemis configuration as expressed in YAML.
 # In dictionary form it's rendered as:
 # {'flair_enforce_approve_posts': True,
@@ -375,7 +436,7 @@ ADV_DEFAULT = """
     # Phrases over 20 characters (including spaces) will be truncated.
     custom_goodbye: ""
 """
-CONFIG_GOOD = '''
+CONFIG_GOOD = """
 👍 The data for r/{0} has been updated from the **[advanced configuration page]\
 (https://www.reddit.com/r/{0}/wiki/assistantbot_config)** successfully! \
 It will be used for your community's [advanced Artemis settings]\
@@ -391,7 +452,7 @@ and applied those changes.
 * If you no longer wish to use these settings and would like to revert to the default, \
 [send me a new modmail message](https://mod.reddit.com/mail/create) with `Revert` in \
 the subject line.
-'''
+"""
 CONFIG_BAD = """
 👎 Artemis encountered an error with the advanced configuration data for r/{0}. Please check the \
 **[advanced configuration page](https://www.reddit.com/r/{0}/wiki/assistantbot_config)**'s data \
