@@ -3,7 +3,7 @@
 * Looking for an easy-to-use bot to help make sure your community's submitters remember to choose a post flair? 
 * Want more detailed and extensive statistics on the health and growth of your community? 
 
-**Artemis (u/AssistantBOT)** is an easy-to-use and helpful Reddit bot written by a moderator *for* moderators to assist them with organizing and gaining insights into their own communities. (Now used on 800+ subreddits with over 50 million subscribers and 3000+ moderators combined!)
+**Artemis (u/AssistantBOT)** is an easy-to-use and helpful Reddit bot written by a moderator *for* moderators to assist them with organizing and gaining insights into their own communities. (Now used on 1,500+ subreddits with over 100 million subscribers and 3000+ moderators combined!)
 
 ## Functions (TL;DR)
 
