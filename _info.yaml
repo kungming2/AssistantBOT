@@ -1,18 +1,15 @@
 # -----
 # These are the credentials necessary for Artemis to access Reddit.
 # -----
-version_number: 2.1.0 Katsura
-username: AssistantBOT
-password:
-app_id:
-app_secret:
-creator: kungming2
+version_number: 2.2 Laurel Beta
+username:
+creator:
 backup_folder:
 backup_folder_2:
 # -----
 # These are the credentials for companion scripts.
 # -----
-helper_username: ArtemisHelper
+helper_username:
 helper_password:
 helper_app_id:
 helper_app_secret:
