@@ -737,7 +737,7 @@ def counter_updater(
         # if one doesn't already exist. This is likely to only happen
         # a single time per database file.
         create_command = "INSERT INTO subreddit_actions VALUES (?, ?)"
-        counter_cursor.execute(create_command, (str({}), "all"))
+        counter_cursor.execute(create_command, ("all", str({})))
         conn.commit()
         logger.info("Counter Updater: Created new 'all' entry in `subreddit_actions` table.")
 
