@@ -2405,7 +2405,7 @@ def wikipage_editor(subreddit_name, subreddit_data, new_subreddits):
     # We check to see if this subreddit is new. If we have NEVER
     # done statistics for this subreddit before, we will send an
     # initial setup message later once statistics are done.
-    # TODO post-Katsura - make this a per-instance thing.
+    # TODO post-Laurel - make this a per-instance thing.
     if subreddit_name in new_subreddits and INSTANCE is 99:
         send_initial_message = True
     else:
@@ -3009,7 +3009,7 @@ def widget_comparison_updater():
     """This function updates a widget on r/Bot that has comparative data
     for various moderator bots on Reddit.
 
-    TODO post-Katsura: Move this to the external script to run on cron.
+    TODO post-Laurel: Move this to the external script to run on cron.
 
     :return: `None`.
     """
