@@ -3,6 +3,7 @@
 """The timekeeping component primarily deals with time conversion and
 formatting.
 """
+import calendar
 import datetime
 import time
 
@@ -64,6 +65,18 @@ def month_convert_to_string(unix_integer):
     month_string = datetime.datetime.utcfromtimestamp(int(unix_integer)).strftime("%Y-%m")
 
     return month_string
+
+
+def convert_weekday_text(day_string):
+    """This simple function converts a weekday abbreviation to its full
+    English form, or vice versa.
+    """
+
+    if len(day_string) == 3:
+        weekday_num = time.strptime(day_string, '%a').tm_wday
+        return calendar.day_name[weekday_num]
+    else:
+        return day_string[:3]
 
 
 def num_days_between(start_day, end_day):
@@ -146,9 +159,12 @@ def get_historical_series_days(list_of_days):
 def check_flair_schedule(flair_template_id, flair_days_dict):
     """This function checks a given flair template ID against
     a dictionary of what flairs are allowed on what weekdays (stored in
-    the advanced configuration).
+    the advanced configuration). If the dictionary is empty, anything
+    will be approved.
+
     :return: If it is allowed, then the function
-             returns `True`. Otherwise, `False`.
+             returns `True` (user can post on this weekday).
+             Otherwise, `False` (cannot post on this weekday).
     """
     west_timezone = "Pacific/Auckland"
     east_timezone = "Pacific/Honolulu"
@@ -166,6 +182,12 @@ def check_flair_schedule(flair_template_id, flair_days_dict):
 
     # Get the permitted days from the flair dictionary.
     permitted_days = [key for key, value in flair_days_dict.items() if flair_template_id in value]
+
+    # Check the flair ID against a list of all the flairs.
+    # If it's not in any of them, just return and approve.
+    all_flairs = sum(flair_days_dict.values(), [])
+    if flair_template_id not in all_flairs:
+        return True, permitted_days, current_weekday
 
     # Check the two day boundaries and see if there's an overlap. If
     # there is an overlap, then it is permitted to post this flair.
