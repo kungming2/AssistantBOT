@@ -21,7 +21,13 @@ from rapidfuzz import process
 import connection
 import database
 import timekeeping
-from common import flair_template_checker, logger, main_error_log, markdown_escaper
+from common import (
+    flair_sanitizer,
+    flair_template_checker,
+    logger,
+    main_error_log,
+    markdown_escaper,
+)
 from settings import INFO, FILE_ADDRESS, SETTINGS
 from text import *
 
@@ -416,7 +422,7 @@ def subreddit_templates_collater(subreddit_name):
     template_dictionary = subreddit_templates_retrieve(subreddit_name)
     for template in template_dictionary.keys():
         template_order = template_dictionary[template]['order']
-        formatted_order[template_order] = messaging_flair_sanitizer(template, False)
+        formatted_order[template_order] = flair_sanitizer(template, False)
 
     # Reorder and format each line.
     lines = ["* {}".format(formatted_order[key]) for key in sorted(formatted_order.keys())]
@@ -558,55 +564,6 @@ def messaging_send_creator(subreddit_name, subject_type, message):
     return
 
 
-def messaging_flair_sanitizer(text_to_parse, change_case=True):
-    """This is a small function that sanitizes the input from the user
-    for flairs and from flair dictionaries' text in order to make them
-    consistent. This includes removing extraneous characters,
-    lower-casing and stripping, and removing Reddit and Unicode emoji.
-
-    :param text_to_parse: The text we want to convert and clean up.
-    :param change_case: Whether or not we want to change the
-                        capitalization of the text. Generally we want to
-                        change it if it's for a case-insensitive
-                        situation like matching people's messages.
-                        Otherwise, if we're just displaying the options
-                        available, we *do not* want to change case.
-    :return: The sanitized text.
-    """
-    # Here we REMOVE the brackets and characters that may be in post
-    # flairs so that they can match.
-    deleted_characters = ["[", "]", ">", "•"]
-    for character in deleted_characters:
-        if character in text_to_parse:
-            text_to_parse = text_to_parse.replace(character, "")
-
-    # Here we REPLACE some problematic characters that may cause
-    # rendering issues, namely vertical pipes in tables.
-    replaced_characters = {"|": "◦"}
-    for character in replaced_characters:
-        if character in text_to_parse:
-            text_to_parse = text_to_parse.replace(character, replaced_characters[character])
-
-    # Process the text further. If changing case is desired, change it.
-    # In case people keep the Reddit emoji text in, delete it.
-    text_to_parse = text_to_parse.strip()
-    if change_case:
-        text_to_parse = text_to_parse.lower()
-    text_to_parse = re.sub(r':\S+:', '', text_to_parse)
-
-    # Account for Unicode emoji by deleting them as well.
-    # uFE0F is an invisible character marking emoji.
-    reg = re.compile(u'[\U0001F300-\U0001F64F'
-                     u'\U0001F680-\U0001F6FF'
-                     u'\U0001F7E0-\U0001F7EF'
-                     u'\U0001F900-\U0001FA9F'
-                     u'\uFE0F\u2600-\u26FF\u2700-\u27BF]',
-                     re.UNICODE)
-    text_to_parse = reg.sub('', text_to_parse).strip()
-
-    return text_to_parse
-
-
 def messaging_parse_flair_response(subreddit_name, response_text, post_id):
     """This function looks at a user's response to determine if their
     response is a valid flair in the subreddit that they posted in.
@@ -629,7 +586,7 @@ def messaging_parse_flair_response(subreddit_name, response_text, post_id):
     action_type = None
 
     # Process the response from the user to make it consistent.
-    response_text = messaging_flair_sanitizer(response_text)
+    response_text = flair_sanitizer(response_text)
 
     # Generate a new dictionary with template names all in lowercase.
     lowercased_flair_dict = {}
@@ -644,7 +601,7 @@ def messaging_parse_flair_response(subreddit_name, response_text, post_id):
         # to see if they match a flair on the sub.
         # Assign the value to a new dictionary indexed with
         # the formatted key.
-        formatted_key = messaging_flair_sanitizer(key)
+        formatted_key = flair_sanitizer(key)
         lowercased_flair_dict[formatted_key] = template_dict[key]
 
     # If we find the text that the user sent back in the templates, we
@@ -1188,7 +1145,7 @@ def main_query_operations(id_list, specific_subreddit=None):
         header = "#### [{}]({})\n\n* **Post ID**: `{}`\n* **Author**: u/{}\n"
         header = header.format(praw_object.title, praw_object.permalink, post_id, author)
         if praw_object.link_flair_text:
-            rendered_flair = messaging_flair_sanitizer(praw_object.link_flair_text, False)
+            rendered_flair = flair_sanitizer(praw_object.link_flair_text, False)
         else:
             rendered_flair = "None"
         header += "* **Created**: {}\n* **Current Post Flair**: {}".format(item_created,
@@ -1426,6 +1383,7 @@ def main_post_schedule_reject(post_subreddit, post, post_author, schedule_data):
     """This function takes care of sending messages to individuals who
     submit posts on off-days from the schedule. It formats the message
     to send to them, and sends the actual message.
+
     :param post_subreddit: A PRAW subreddit object.
     :param post: A PRAW submission object.
     :param post_author: The author of the post, passed as a string.
@@ -1434,15 +1392,13 @@ def main_post_schedule_reject(post_subreddit, post, post_author, schedule_data):
     :return: Nothing.
     """
     post_id = post.id
-    post_flair_text = post.link_flair_text
-    permitted_days = schedule_data[1]
-    current_weekday = schedule_data[2]
-    database.counter_updater(post_subreddit, 'Removed unscheduled post',
-                             "main", post_id=post_id)
-    logger.info('Get: >> Removed post `{}` on r/{} posted on '
-                'off-day from the schedule. '.format(post_id, post_subreddit))
+    post_flair_text = flair_sanitizer(post.link_flair_text, False)
 
-    # Format message to the user, using the list of templates.
+    # Convert abbreviations to full weekday names for greater clarity.
+    permitted_days = [timekeeping.convert_weekday_text(x) for x in schedule_data[1]]
+    current_weekday = timekeeping.convert_weekday_text(schedule_data[2])
+
+    # Format message to the user, using the template.
     message_to_send = MSG_SCHEDULE_REMOVAL.format(post_author, post.subreddit.display_name,
                                                   post_flair_text, ', '.join(permitted_days),
                                                   current_weekday, post.permalink)
@@ -1452,6 +1408,12 @@ def main_post_schedule_reject(post_subreddit, post, post_author, schedule_data):
         flair_notifier(post, message_to_send)
         notify = "Schedule Reject: Sent message to u/{} about unscheduled post `{}`."
         logger.info(notify.format(post_author, post_id))
+
+        # Record the action.
+        database.counter_updater(post_subreddit, 'Removed unscheduled post',
+                                 "main", post_id=post_id)
+        logger.info('Get: >> Removed post `{}` on r/{} posted on '
+                    'off-day from the schedule. '.format(post_id, post_subreddit))
 
     return
 
