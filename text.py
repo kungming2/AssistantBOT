@@ -82,7 +82,7 @@ MSG_MOD_INIT_REDIRECT = """
 🈵 Thanks for inviting me to assist the r/{0} \
 [moderator team](https://www.reddit.com/r/{0}/about/moderators)! \
 We are currently asking new subreddits to invite my alternate accounts \
-to moderate instead, in order to spread out the load on Reddit's API. 
+to moderate instead, in order to spread out the load on Reddit's API.
 
 **Please [send a moderator invite]\
 (https://www.reddit.com/r/{0}/about/moderators) to the alternate \
@@ -292,7 +292,7 @@ weekdays:
 
 Your post has been removed as it is currently **{4}**, and feel free \
 to check out [r/{1}'s community rules]\
-(https://www.reddit.com/r/{1}/about/rules) for more information. \ 
+(https://www.reddit.com/r/{1}/about/rules) for more information. \
 Please re-submit your {2} post on a suitable scheduled weekday and \
 thank you for stopping by!
 """
@@ -426,6 +426,10 @@ ADV_DEFAULT = """
     # Each key takes a *list* of post flair IDs.
     # If a submission is flaired with one, it will be tagged with the corresponding attribute.
     flair_tags: {}
+    # A dictionary with up to 7 keys of weekday abbreviations: `Sun`, `Mon`, etc.
+    # Each key takes a *list* of post flair IDs. Submissions with such flairs will be 
+    # removed if they are posted on any day except the weekdays specified.
+    flair_schedule: {}
     # A custom bot name instead of "Artemis" for usage in flair enforcement messages to users.
     # Please do not change this to something too long.
     # Names over 20 characters (including spaces) will be truncated.
