@@ -123,7 +123,7 @@ def markdown_escaper(input_text):
     characters_to_replace = ["[", "]", "`", "*", "_"]
 
     for character in characters_to_replace:
-        input_text = input_text.replace(character, "\{}".format(character))
+        input_text = input_text.replace(character, r"\{}".format(character))
 
     return input_text
 
