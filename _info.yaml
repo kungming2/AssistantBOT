@@ -1,7 +1,7 @@
 # -----
 # These are the credentials necessary for Artemis to access Reddit.
 # -----
-version_number: 2.2 Laurel Beta
+version_number: 2.2.2 Laurel
 username:
 creator:
 backup_folder:
