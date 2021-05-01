@@ -406,23 +406,51 @@ def subreddit_templates_retrieve(subreddit_name, display_mod_flairs=False):
     return subreddit_templates
 
 
-def subreddit_templates_collater(subreddit_name):
+def subreddit_templates_collater(subreddit_name, extended_data=None):
     """A function that generates a bulleted list of flairs available on
      a subreddit based on a dictionary by the function
-     `subreddit_templates_retrieve()`.
+     `subreddit_templates_retrieve()`. If the flairs are limited to
+     certain days,
 
     :param subreddit_name: The name of a Reddit subreddit.
+    :param extended_data: An optional extended data dictionary.
+                          This is so that the flairs can be paired with
+                          their specific scheduled days.
     :return: A Markdown-formatted bulleted list of templates.
     """
     formatted_order = {}
+
+    # Get the flair schedule if present.
+    if extended_data is not None:
+        schedule = extended_data.get('flair_schedule', {})
+    else:
+        schedule = {}
 
     # Iterate over our keys, indexing by the order in which they are
     # displayed in the flair selector. The templates are also passed to
     # the flair sanitizer for processing.
     template_dictionary = subreddit_templates_retrieve(subreddit_name)
+
+    # Iterate over the templates and format them nicely as a list.
     for template in template_dictionary.keys():
         template_order = template_dictionary[template]['order']
-        formatted_order[template_order] = flair_sanitizer(template, False)
+        template_id = template_dictionary[template]['id']
+
+        # Check if there's extended data.
+        if extended_data:
+            raw_data = flair_sanitizer(template, False)
+            specific_schedule = timekeeping.check_flair_schedule(template_id, schedule)
+
+            # If this specific flair template has permitted days on the
+            # schedule, add a small note next to the flair noting which
+            # days those flairs are for.
+            if specific_schedule[1]:
+                permitted = [timekeeping.convert_weekday_text(x) for x in specific_schedule[1]]
+                raw_data += " (only on {})".format(', '.join(permitted))
+            formatted_order[template_order] = raw_data
+        else:
+            # No schedule data, just format it accordingly.
+            formatted_order[template_order] = flair_sanitizer(template, False)
 
     # Reorder and format each line.
     lines = ["* {}".format(formatted_order[key]) for key in sorted(formatted_order.keys())]
@@ -540,6 +568,8 @@ def messaging_send_creator(subreddit_name, subject_type, message):
                     passed in from above.
     :return: None.
     """
+    subreddit_name = subreddit_name.lower()
+
     # This is a dictionary that defines what the subject line will be
     # based on the action. The add portion is currently unused.
     subject_dict = {"add": 'Added former subreddit: r/{}',
@@ -550,7 +580,7 @@ def messaging_send_creator(subreddit_name, subject_type, message):
                     "mention": "New item mentioning Artemis on r/{}"
                     }
 
-    # Taking note of exempted subreddits.
+    # Taking note of exempted subreddits and exit early.
     if subject_type == "mention" and subreddit_name in connection.CONFIG.sub_mention_omit:
         logger.info("Messaging Send Creator: "
                     "Mention in omitted subreddit r/{}.".format(subreddit_name))
@@ -797,7 +827,7 @@ def messaging_example_collater(subreddit):
     stored_extended_data = database.extended_retrieve(new_subreddit)
     template_header = "*Here's an example flair enforcement message for r/{}:*"
     template_header = template_header.format(subreddit.display_name)
-    sub_templates = subreddit_templates_collater(new_subreddit)
+    sub_templates = subreddit_templates_collater(new_subreddit, stored_extended_data)
     current_permissions = connection.obtain_mod_permissions(new_subreddit, INSTANCE)
 
     # For the example, instead of putting a permalink to a post, we just
@@ -1220,7 +1250,7 @@ def main_post_approval(submission, template_id=None, extended_data=None):
                           database if that information is already
                           present as a dictionary.
     :return: `True` if post approved and everything went well,
-             `False` otherwise.
+             `False` otherwise. (results not used by other functions)
     """
     # Define basic variables for the post.
     post_id = submission.id
@@ -1278,6 +1308,7 @@ def main_post_approval(submission, template_id=None, extended_data=None):
         logger.debug('Post Approval: Post `{}` author deleted.'.format(post_id))
         database.counter_updater(post_subreddit, 'Author deleted', "main",
                                  post_id=post_id, id_only=True)
+        post_author = '[deleted]'
         can_process = False
 
     # Run a check for the boolean `can_process`. If it's `False`,
@@ -1334,6 +1365,45 @@ def main_post_approval(submission, template_id=None, extended_data=None):
     # mode or for the default mode. This is also where the posts are
     # removed from the filtered database via `messaging_op_approved`.
     if approve_perm and 'posts' in current_permissions or 'all' in current_permissions:
+        # Conduct a check against a flair schedule, if present.
+        # This will trigger a removal if the post is on a non-scheduled
+        # day. Otherwise, nothing will happen in this chunk.
+        if 'flair_schedule' in extended_data:
+            schedule_data = timekeeping.check_flair_schedule(template_id,
+                                                             extended_data['flair_schedule'])
+
+            # Convert abbreviations to full weekday names for greater clarity.
+            permitted_days = [timekeeping.convert_weekday_text(x) for x in schedule_data[1]]
+            current_weekday = timekeeping.convert_weekday_text(schedule_data[2])
+
+            if not schedule_data[0]:
+                # The post is scheduled on a non-scheduled day. Send
+                # the user a message letting them know. This also exits
+                # early as the rest of the function is now moot and
+                # there is no reason to approval it under the
+                # circumstances.
+                message_to_send = MSG_SCHEDULE_REMOVAL.format(post_author,
+                                                              submission.subreddit.display_name,
+                                                              post_flair_text,
+                                                              ', '.join(permitted_days),
+                                                              current_weekday,
+                                                              submission.permalink)
+                try:
+                    reddit.redditor(post_author).message(subject=MSG_SCHEDULE_REMOVAL_SUBJECT,
+                                                         message=message_to_send)
+                except praw.exceptions.APIException:
+                    # This is usually thrown if a user has disabled
+                    # personal private messages.
+                    pass
+                logger.info('Post Approval: Did not approve post `{}` on r/{} as template `{}` '
+                            'is on an off-day.'.format(post_id, post_subreddit, template_id))
+
+                # Remove the post from database since it is unscheduled.
+                database.delete_filtered_post(post_id)
+                database.counter_updater(None, "Cleared unscheduled post", "main", post_id=post_id,
+                                         id_only=True)
+                return False
+
         # Approve the post and send a message to the OP
         # letting them know that their post is approved.
         try:
@@ -1471,7 +1541,7 @@ def main_messaging():
                 if 'u/{}'.format(INFO.creator) not in message.body:
                     body_format = message.body.replace('\n', '\n> ')
                     message_content = "**[Link]({})**\n\n> ".format(cmt_permalink) + body_format
-                    messaging_send_creator(msg_subreddit, 'mention',
+                    messaging_send_creator(msg_subreddit.display_name.lower(), 'mention',
                                            "* {}".format(message_content))
                     logger.debug('Messaging: Forwarded username mention'
                                  ' comment to my creator.')
@@ -2288,7 +2358,7 @@ def main_get_submissions(statistics_mode=False):
 
             # Retrieve the available flairs as a Markdown list.
             # This will be blank if there aren't actually any flairs.
-            available_templates = subreddit_templates_collater(post_subreddit)
+            available_templates = subreddit_templates_collater(post_subreddit, sub_ext_data)
             main_msg = "Get: > Post on r/{} (https://redd.it/{}) is unflaired."
             logger.info(main_msg.format(post_subreddit, post_id))
 
