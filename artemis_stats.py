@@ -3130,11 +3130,15 @@ def main_obtain_mentions():
                 continue
 
     # Send the retrieved mentions information to my creator,
-    # if there are any.
+    # if there are any. Exclude mentions in subreddits that are
+    # listed to be excluded.
     if len(full_dictionary) > 0:
         for key, value in full_dictionary.items():
-            connection.messaging_send_creator(value[0], "mention", value[1])
-            logger.info('Obtain Mentions: Sent my creator a message about item `{}`.'.format(key))
+            sub_name = value[0].lower()
+            if sub_name not in connection.CONFIG.sub_mention_omit:
+                connection.messaging_send_creator(value[0], "mention", value[1])
+                logger.info('Obtain Mentions: Sent my creator a '
+                            'message about item `{}`.'.format(key))
 
     return
 
