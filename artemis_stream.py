@@ -13,6 +13,7 @@ used to query the database about post data.
 """
 import re
 import sqlite3
+import time
 from ast import literal_eval
 from collections import Counter
 from types import SimpleNamespace
@@ -20,30 +21,14 @@ from urllib.parse import urlparse, parse_qs
 
 import connection
 import timekeeping
-from common import logger
+from common import start_logger
 from database import database_access
-from settings import INFO, FILE_ADDRESS
+from settings import INFO, FILE_ADDRESS, SETTINGS
 from timekeeping import convert_to_unix
 
 CONN_STREAM = sqlite3.connect(FILE_ADDRESS.data_stream)
 CURSOR_STREAM = CONN_STREAM.cursor()
-
-# A list of saved post attributes, in addition to author and
-# subreddit. These are additional ones.
-ATTRIBUTE_LIST = [
-    "author_flair_text",
-    "domain",
-    "id",
-    "is_self",
-    "is_video",
-    "link_flair_css_class",
-    "link_flair_template_id",
-    "link_flair_text",
-    "over_18",
-    "spoiler",
-    "subreddit_subscribers",
-    "title",
-]
+logger = start_logger(FILE_ADDRESS.logs_stream)
 
 """ACCESS/SEARCH FUNCTIONS"""
 
@@ -90,8 +75,10 @@ def stream_query_access(query_string, return_pushshift_format=True):
     # `aggs` can serve as the main operator telling us what kind of
     # query we wanna run.
     query_type = query.aggs
-    logger.info("Stream Query Access: Now querying `{}` on "
-                "r/{} data.".format(query_type, query.subreddit))
+    logger.info(
+        "Stream Query Access: Now querying `{}` on "
+        "r/{} data.".format(query_type, query.subreddit)
+    )
     sub_data = stream_database_fetcher(query.subreddit, query.after, query.before)
     most_common_data = stream_most_common(query_type, sub_data)
 
@@ -185,7 +172,8 @@ def stream_ps_response_former(counter_object, query_type, results_size):
     :param counter_object: A Counter object from `stream_most_common`.
     :param query_type: The original query type.
     :param results_size: How many results to return.
-    :return:
+    :return: A dictionary that mimics a response from Pushshift's aggs
+             endpoint.
     """
     # Get the most common objects according to `results_size` amount.
     counter_list = []
@@ -217,40 +205,45 @@ def chunks(list_items, num_per_chunk):
     # For item i in a range that is a length of l,
     for i in range(0, len(list_items), num_per_chunk):
         # Create an index range for l of n items:
-        yield list_items[i:i + num_per_chunk]
+        yield list_items[i : i + num_per_chunk]
 
 
 def posts_writer(posts_data):
     """Routine that writes to the database the post data from a list of
-    posts. Does not overwrite any previously stored data.
+    posts. Does not overwrite any previously stored data. The writer
+    collects lines to write in a list, checking against previously saved
+    ones, and then writes multiple ones in a single go.
     """
-    count = 0
-    progress_marker = 50
+    lines_to_save = []
 
+    # Set up time boundaries of a day ago to reduce the amount needed
+    # to be fetched.
+    seconds_ago_to_check = 86400
+    current_time = int(time.time())
+    current_boundary = current_time - (SETTINGS.stream_post_writer_days * seconds_ago_to_check)
+
+    # Get the list of saved posts' IDs to check against.
+    logger.info("Posts Writer: Beginning writing...")
+    CURSOR_STREAM.execute("SELECT id FROM posts WHERE created_utc >= ?", (current_boundary,))
+    saved_posts = CURSOR_STREAM.fetchall()[-25000:]
+    saved_posts = [x[0] for x in saved_posts]
+
+    # Form lines to save.
     for post in posts_data:
         relevant_data = posts_data[post]
         post_id = str(post)
         post_time = int(relevant_data["created_utc"])
-        command = "SELECT * FROM posts WHERE id = ?"
-        CURSOR_STREAM.execute(command, (post_id,))
-        result = CURSOR_STREAM.fetchone()
 
-        if not result:
-            CURSOR_STREAM.execute(
-                "INSERT INTO posts VALUES (?, ?, ?)",
-                (post_id, post_time, str(relevant_data)),
-            )
-            CONN_STREAM.commit()
-            logger.debug("Posts Writer: Post `{}` added to stream database.".format(post_id))
-            count += 1
-        else:
-            logger.debug(
-                "Posts Writer: Post `{}` already exists in " "stream database.".format(post_id)
-            )
+        # Prepare for insertion if not already saved.
+        if post_id not in saved_posts:
+            line_package = (post_id, post_time, str(relevant_data))
+            lines_to_save.append(line_package)
 
-        # Show the progress.
-        if count % progress_marker == 0 and count != 0:
-            logger.info("Posts Writer: {:,} posts written.".format(count))
+    # Insert many at a time.
+    CURSOR_STREAM.executemany("INSERT INTO posts VALUES (?, ?, ?)", lines_to_save)
+    CONN_STREAM.commit()
+    logger.info(f"Posts Writer: Inserted {CURSOR_STREAM.rowcount} posts.")
+    logger.info("Posts Writer: Ended writing.")
 
     return
 
@@ -302,7 +295,7 @@ def posts_parser(posts_list):
                 logger.debug(">> Post has post flair text `{}`.".format(post.link_flair_text))
 
         # Save the additional attributes.
-        for attribute_save in ATTRIBUTE_LIST:
+        for attribute_save in SETTINGS.stream_attributes:
             shortened_package[attribute_save] = vars(post).get(attribute_save)
 
         # Assign this package to the master dictionary.
@@ -347,7 +340,7 @@ def get_stream():
     return chunked
 
 
-def get_streamed_posts(pull_amount=100):
+def get_streamed_posts(pull_amount=150):
     """This fetches the latest posts and organizes them across several
     subreddits. These posts are fetched as PRAW objects.
 
@@ -357,11 +350,12 @@ def get_streamed_posts(pull_amount=100):
     posts_all = []
     differences = []
 
+    logger.info(f"Get Streamed Posts: Beginning fetch with {pull_amount} per chunk...")
     portions = get_stream()
 
     # Iterate through the lists of subreddits.
     for portion in portions:
-        logger.info(
+        logger.debug(
             "Get Posts: Checking portion {} of "
             "{}...".format(portions.index(portion) + 1, len(portions))
         )
@@ -372,16 +366,21 @@ def get_streamed_posts(pull_amount=100):
         # Calculate the time differential per portion.
         first = posts_new[-1].created_utc
         last = posts_new[0].created_utc
-        difference = int(last - first)
+        difference = int(last - first) / 60
+        differences.append(difference)
         average = difference / len(posts_new)
-        differences.append(average)
-        logger.info("Get Posts: {:.2f} minutes differential.".format(difference / 60))
-        logger.info("Get Posts: Post every {:.2f} seconds on average.".format(average))
+        logger.info("Get Posts: {:.2f} minutes differential.".format(difference))
+        logger.debug("Get Posts: Post every {:.2f} seconds on average.".format(average))
 
+    # The differential is how many minutes a `pull_amount` number of
+    # posts span. If the minimal amount is lower than our run frequency,
+    # we will have to up that frequency.
     logger.info(
-        "Get Posts: Total average is a post every {:.2f} "
-        "seconds.".format(sum(differences) / len(differences))
+        "Get Posts: The average differential is {:.2f} minutes for "
+        "{} posts.".format(sum(differences) / len(differences), pull_amount)
     )
+    logger.info(f"Get Posts: The lowest differential is {min(differences)} minutes.")
+    logger.info("Get Streamed Posts: Ended fetch.")
 
     # Sort the posts by oldest first.
     posts_all.sort(key=lambda x: x.id.lower())
@@ -397,7 +396,7 @@ def integrity_check():
     )
     result = CURSOR_STREAM.fetchone()
 
-    if 'ok' in result:
+    if "ok" in result:
         logger.info("Integrity Check: Passed.")
         return True
     else:
@@ -418,7 +417,7 @@ def get_streamed_comments(pull_amount=1000):
 
     portions = get_stream()
     for portion in portions[0:6]:
-        logger.info(
+        logger.debug(
             "Get Comments: Checking portion {} of "
             "{}...".format(portions.index(portion) + 1, len(portions))
         )
@@ -447,6 +446,7 @@ def get_streamed_comments(pull_amount=1000):
 # */20 * * * *
 if __name__ == "__main__":
     # Log into Reddit.
+    start_time = time.time()
     logger.info("Stream: Beginning fetch.")
     connection.login(False, 0)
     reddit = connection.reddit
@@ -454,8 +454,9 @@ if __name__ == "__main__":
     reddit_helper = connection.reddit_helper
 
     # Run the proper functions.
-    get_streamed_posts()
+    get_streamed_posts(SETTINGS.stream_pull_amount)
     # get_streamed_comments()
     integrity_check()
     CONN_STREAM.close()
-    logger.info("Stream: Ended fetch.")
+    elapsed = (time.time() - start_time) / 60
+    logger.info("Stream: Ended fetch. Elapsed time: {:.2f} minutes.".format(elapsed))
