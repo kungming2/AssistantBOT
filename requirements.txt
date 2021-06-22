@@ -1,5 +1,5 @@
 pbwrap
-praw>=6.1.0
+praw>=7.1.0
 prawcore
 psutil
 pytz
