@@ -57,7 +57,7 @@ def stream_query_access(query_string, return_pushshift_format=True):
     # Ensure that we're searching for submissions, not comments.
     search_type = re.search(r"/search.*/(.*)/", query_string).group(1)
     if search_type != "submission":
-        logger.info("Stream Query Access: Query is for unstored comment data.")
+        logger.debug("Stream Query Access: Query is for unstored comment data.")
         return {}
 
     # Get the main variables and store them in a dictionary, which is
@@ -75,7 +75,7 @@ def stream_query_access(query_string, return_pushshift_format=True):
     # `aggs` can serve as the main operator telling us what kind of
     # query we wanna run.
     query_type = query.aggs
-    logger.info(
+    logger.debug(
         "Stream Query Access: Now querying `{}` on "
         "r/{} data.".format(query_type, query.subreddit)
     )
@@ -85,7 +85,7 @@ def stream_query_access(query_string, return_pushshift_format=True):
     # If specific compatibility with Pushshift is requested, format the
     # response in a way that matches the results normally returned.
     if return_pushshift_format:
-        logger.info("Stream Query Access: Returning data in Pushshift format.")
+        logger.debug("Stream Query Access: Returning data in Pushshift format.")
         final_data = stream_ps_response_former(most_common_data, query_type, query.size)
     else:
         final_data = most_common_data
@@ -152,13 +152,13 @@ def stream_most_common(query_field, master_dictionary):
 
     # Call Counter to get most common items, sorted by most common
     # first.
-    logger.info(
+    logger.debug(
         "Stream Most Common: {:,} items for `{}` query subset.".format(
             len(operating_list), query_field
         )
     )
     sorted_counter = Counter(operating_list)
-    logger.info(
+    logger.debug(
         "Stream Most Common: Top 3 results were: " "`{}`".format(sorted_counter.most_common(3))
     )
 
@@ -218,9 +218,8 @@ def posts_writer(posts_data):
 
     # Set up time boundaries of a day ago to reduce the amount needed
     # to be fetched.
-    seconds_ago_to_check = 86400
     current_time = int(time.time())
-    current_boundary = current_time - (SETTINGS.stream_post_writer_days * seconds_ago_to_check)
+    current_boundary = current_time - (SETTINGS.stream_post_writer_days * 86400)
 
     # Get the list of saved posts' IDs to check against.
     logger.info("Posts Writer: Beginning writing...")
@@ -302,7 +301,11 @@ def posts_parser(posts_list):
         master_dictionary[post.id] = shortened_package
 
     logger.info("Posts Parser: {:,} posts to be saved.".format(len(master_dictionary)))
-    logger.info("Posts Parser: {:,} posts skipped.".format(skipped))
+    logger.info(
+        "Posts Parser: {:,} posts skipped due to being earlier than the time limit.".format(
+            skipped
+        )
+    )
     posts_writer(master_dictionary)
 
     return master_dictionary
@@ -379,7 +382,7 @@ def get_streamed_posts(pull_amount=150):
         "Get Posts: The average differential is {:.2f} minutes for "
         "{} posts.".format(sum(differences) / len(differences), pull_amount)
     )
-    logger.info(f"Get Posts: The lowest differential is {min(differences)} minutes.")
+    logger.info("Get Posts: The lowest differential is {:.2f} minutes.".format(min(differences)))
     logger.info("Get Streamed Posts: Ended fetch.")
 
     # Sort the posts by oldest first.
