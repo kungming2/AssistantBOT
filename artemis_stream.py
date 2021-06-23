@@ -372,7 +372,7 @@ def get_streamed_posts(pull_amount=150):
         difference = int(last - first) / 60
         differences.append(difference)
         average = difference / len(posts_new)
-        logger.info("Get Posts: {:.2f} minutes differential.".format(difference))
+        logger.debug("Get Posts: {:.2f} minutes differential.".format(difference))
         logger.debug("Get Posts: Post every {:.2f} seconds on average.".format(average))
 
     # The differential is how many minutes a `pull_amount` number of
