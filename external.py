@@ -3,7 +3,8 @@
 """The external component contains testing routines, targeted checks, as
 well as a monitor routine that is meant to be run separately to audit
 the uptime of the bot. Since these routines are not part of the
-regular runtime, they tend to be less documented or updated.
+regular runtime, they tend to be less documented or updated, and the
+code may not be the cleanest.
 """
 import datetime
 import os
@@ -86,7 +87,7 @@ def monitor_wiki_access(date=None):
                  string in YYYY-MM-DD format.
     :return: A Python list of all dates on which outages were detected.
     """
-    wiki_page = reddit_monitor.subreddit("translatorBOT").wiki["artemis_monitor"]
+    wiki_page = reddit_monitor.subreddit(SETTINGS.wiki).wiki["artemis_monitor"]
     processed_data = wiki_page.content_md
 
     # Convert YAML processed text into a Python list.
@@ -272,6 +273,10 @@ def external_backup_daily():
                 # Iterate over each file and back it up.
                 for file_name in source_files:
 
+                    # Ignore period-prefixed temporary files.
+                    if file_name.startswith("."):
+                        continue
+
                     # Get the full path of the file.
                     full_file_name = os.path.join(SOURCE_FOLDER, file_name)
 
@@ -373,7 +378,9 @@ def external_local_test(query):
             if len(tested_data) > 1000:
                 total_time = time.time() - time_initialize_start
                 artemis_stats.wikipage_editor_local(test_sub, tested_data)
-                print("> Test complete for r/{} in {:.2f} seconds.\n".format(test_sub, total_time))
+                print(
+                    "\n> Test complete for r/{} in {:.2f} seconds.\n".format(test_sub, total_time)
+                )
                 init_times.append(total_time)
         print(
             "\n\n# All {} wikipage collater tests complete. "
@@ -392,8 +399,6 @@ def external_artemis_monthly_statistics(month_string):
     """This function collects various statistics on the bot's actions
     over a certain month and returns them as a Markdown segment.
 
-    TODO Draw from multiple databases.
-
     :param month_string: A month later than December 2019, expressed as
                          YYYY-MM.
     :return: A Markdown segment of text.
@@ -405,6 +410,8 @@ def external_artemis_monthly_statistics(month_string):
     added_subreddits = {}
     formatted_subreddits = []
     actions = {}
+    actions_s_master = {}
+    actions_m_master = {}
     actions_total = {}
     actions_flaired = {}
     posts = {}
@@ -415,6 +422,7 @@ def external_artemis_monthly_statistics(month_string):
     # Get the UNIX times that bound our month.
     year, month = month_string.split("-")
     first_day = month_string + "-01"
+    first_day_unix = timekeeping.convert_to_unix(first_day)
     start_time = timekeeping.convert_to_unix(month_string + "-01")
     end_time = "{}-{}".format(month_string, monthrange(int(year), int(month))[1])
     end_time = timekeeping.convert_to_unix(end_time) + 86399
@@ -457,28 +465,42 @@ def external_artemis_monthly_statistics(month_string):
     actions_s = literal_eval(database.CURSOR_STATS.fetchone()[1])
     database.CURSOR_MAIN.execute("SELECT * FROM subreddit_actions WHERE subreddit == ?", ("all",))
     actions_m = literal_eval(database.CURSOR_MAIN.fetchone()[1])
-    """
-    # TODO merge database?
+
     # Get the actions from the other instance during this time period.
-    CURSOR_STATS_1.execute('SELECT * FROM subreddit_actions WHERE subreddit == ?', ('all',))
+    CURSOR_STATS_1.execute("SELECT * FROM subreddit_actions WHERE subreddit == ?", ("all",))
     actions_s_1 = literal_eval(CURSOR_STATS_1.fetchone()[1])
-    CURSOR_MAIN_1.execute('SELECT * FROM subreddit_actions WHERE subreddit == ?', ('all',))
+    CURSOR_MAIN_1.execute("SELECT * FROM subreddit_actions WHERE subreddit == ?", ("all",))
     actions_m_1 = literal_eval(CURSOR_MAIN_1.fetchone()[1])
+
     # Combine the two database instances together.
     for date in actions_s:
+        # Exclude entries for dates prior to our search parameters.
+        if timekeeping.convert_to_unix(date) < first_day_unix:
+            continue
+
         if date in actions_s_1:
-            print(actions_s[date])
-            print(actions_s_1[date])
-            print('----')
-    """
-    # Combine the actions together.
-    all_days = list(set(list(actions_s.keys()) + list(actions_m.keys())))
+            try:
+                actions_s_master[date] = dict(
+                    Counter(actions_s[date]) + Counter(actions_s_1[date])
+                )
+            except TypeError:
+                logger.info(f"Error in stats dictionary encountered on {date}.")
+        if date in actions_m_1:
+            try:
+                actions_m_master[date] = dict(
+                    Counter(actions_m[date]) + Counter(actions_m_1[date])
+                )
+            except TypeError:
+                logger.info(f"Error in main dictionary encountered on {date}.")
+
+    # Combine the actions together in a single dictionary.
+    all_days = list(set(list(actions_s_master.keys()) + list(actions_m_master.keys())))
     all_days.sort()
-    subset_days = all_days[all_days.index(first_day):]
+    subset_days = all_days[all_days.index(first_day) :]
     for day in subset_days:
-        if day in actions_s:
-            actions[day] = dict(Counter(actions_s[day]) + Counter(actions_m[day]))
-        elif day in actions_m and day not in actions_s:
+        if day in actions_s_master:
+            actions[day] = dict(Counter(actions_s_master[day]) + Counter(actions_m_master[day]))
+        elif day in actions_m_master and day not in actions_s_master:
             actions[day] = Counter(actions_m[day])
 
     # Iterate over the days and actions in the actions dictionaries.
@@ -573,7 +595,6 @@ def external_artemis_monthly_statistics(month_string):
     messages_body = messages_header + "\n".join(messages_lines)
 
     # Collect the number of posts across ALL subreddits.
-    # This also adds a final line summing up everything.
     posts_total = 0
     database.CURSOR_STATS.execute("SELECT * FROM subreddit_stats_posts")
     stats_results = database.CURSOR_STATS.fetchall()
@@ -582,11 +603,29 @@ def external_artemis_monthly_statistics(month_string):
         for day in list_of_days:
             if day not in sub_data:
                 continue
+            day_amount = sum(sub_data[day].values())
             if day in posts:
-                posts[day] += sum(sub_data[day].values())
+                posts[day] += day_amount
             else:
-                posts[day] = sum(sub_data[day].values())
-            posts_total += sum(sub_data[day].values())
+                posts[day] = day_amount
+            posts_total += day_amount
+
+    # Collect it across the second instance.
+    CURSOR_STATS_1.execute("SELECT * FROM subreddit_stats_posts")
+    stats_results_1 = CURSOR_STATS_1.fetchall()
+    for entry in stats_results_1:
+        sub_data = literal_eval(entry[1])
+        for day in list_of_days:
+            if day not in sub_data:
+                continue
+            day_amount = sum(sub_data[day].values())
+            if day in posts:
+                posts[day] += day_amount
+            else:
+                posts[day] = day_amount
+            posts_total += day_amount
+
+    # This also adds a final line summing up everything.
     for day in list(sorted(posts.keys())):
         line = "| {} | {:,} |".format(day, posts[day])
         list_of_posts.append(line)
@@ -793,12 +832,20 @@ if len(sys.argv) > 1:
     elif specific_mode == "split":
         external_database_splitter()
     elif specific_mode == "stats" or specific_mode == "statistics":
-        month_stats = input("\n====\n\nEnter the month in YYYY-MM format or 'x' to exit: ").strip()
+        month_stats = input(
+            "\n====\n\nEnter the month in YYYY-MM format, "
+            "'p' for the previous month, or 'x' to exit: "
+        ).strip()
         # database.define_database(1)
+        if month_stats == "p":
+            month_stats = timekeeping.previous_month()
+            print(f"> Getting statistics for {month_stats}.")
+        elif month_stats == "x":
+            sys.exit()
         month_data = external_artemis_monthly_statistics(month_stats)
         print(month_data[0])
-        permission_to_post = input("\n\n> Should I post this to the subreddit? ").strip().lower()
-        if permission_to_post == "y":
+        permission_to_post = input("\n\n> Should I post this to the subreddit? (y/n) ").strip()
+        if permission_to_post.lower() == "y":
             post_note = input("\n\n>> Type a note to include: ").strip()
             post_note += "\n\n{}".format(month_data[0])
             reddit.subreddit(INFO.username).submit(
@@ -814,11 +861,9 @@ if len(sys.argv) > 1:
     # The last two are cron jobs.
     elif specific_mode == "monitor":
         # noinspection PyBroadException
-        # */15 * * * *
         try:
             monitor_main()
         except Exception as e:
             logger.error(Exception)
     elif specific_mode == "backup":
-        # 5 18 * * *
         external_backup_daily()
