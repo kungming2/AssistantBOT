@@ -73,7 +73,7 @@ def convert_weekday_text(day_string):
     """
 
     if len(day_string) == 3:
-        weekday_num = time.strptime(day_string, '%a').tm_wday
+        weekday_num = time.strptime(day_string, "%a").tm_wday
         return calendar.day_name[weekday_num]
     else:
         return day_string[:3]
@@ -146,12 +146,12 @@ def get_historical_series_days(list_of_days):
         # This is longer than our limit of days. Truncate it down.
         # If we can get an extra *full* month past this, get it.
         if len(list_of_days) > days_limit + 31:
-            first_day = list_of_days[(-1 * days_limit):][0]
+            first_day = list_of_days[(-1 * days_limit) :][0]
             initial_start = first_day[:-3] + "-01"
-            list_of_days = list_of_days[list_of_days.index(initial_start):]
+            list_of_days = list_of_days[list_of_days.index(initial_start) :]
         else:
             # Otherwise, just return the last 90 days.
-            list_of_days = list_of_days[(-1 * days_limit):]
+            list_of_days = list_of_days[(-1 * days_limit) :]
 
     return list_of_days
 
@@ -198,3 +198,10 @@ def check_flair_schedule(flair_template_id, flair_days_dict):
         return True, permitted_days, current_weekday
     else:
         return False, permitted_days, current_weekday
+
+
+def previous_month():
+    """Gets previous month in YYYY-MM form."""
+    prev_month = (datetime.datetime.now() - datetime.timedelta(days=30)).strftime("%Y-%m")
+
+    return prev_month
