@@ -19,6 +19,8 @@ FILE_PATHS = {
     "data_stream": "/_data_stream.db",
     "error": "/_error.md",
     "logs": "/_logs.md",
+    "logs_stats": "/_logs_stats.md",
+    "logs_stream": "/_logs_stream.md",
     "info": "/_info.yaml",
     "messages": "/_messages.md",
     "messages_other": "/_messages_other.md",
