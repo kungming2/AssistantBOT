@@ -37,7 +37,7 @@ def config_retriever():
 
     # Access the configuration page on the wiki.
     # noinspection PyUnresolvedReferences
-    target_page = reddit_helper.subreddit("translatorBOT").wiki["artemis_config"].content_md
+    target_page = reddit_helper.subreddit(SETTINGS.wiki).wiki["artemis_config"].content_md
     config_data = yaml.safe_load(target_page)
 
     # Here are some basic variables to use, making sure everything is
