@@ -254,7 +254,7 @@ Thank you very much, and {6}!
 """
 MSG_USER_FLAIR_BODY_MESSAGING = (
     "\n* ↩️ *or* replying to this message with just the text of a "
-    "flair listed below.\n    * Capitalization does not matter."
+    "flair listed below. Capitalization does not matter."
 )
 MSG_USER_FLAIR_MODMAIL_LINK = (
     "https://www.reddit.com/message/compose?to=%2Fr%2F{}&subject="
@@ -340,6 +340,11 @@ WIKIPAGE_TEMPLATE = """
 
 {4}
 """
+WIKIPAGE_PS_ERROR = """
+* Data cannot be accessed for this timeframe and query \
+due to Pushshift aggregations being disabled \
+(see [here](https://redd.it/jm8yyt) on r/Pushshift).
+"""
 # This is a list of goodbye phrases.
 # Artemis chooses a random one when sending a message.
 GOODBYE_PHRASES = [
@@ -378,7 +383,7 @@ GOODBYE_PHRASES = [
     "To infinity and beyond",
     "Toodeloo",
     "Tschüss",
-    "Until next time"
+    "Until next time",
 ]
 # This is the default Artemis configuration as expressed in YAML.
 # In dictionary form it's rendered as:
