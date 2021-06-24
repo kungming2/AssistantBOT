@@ -11,6 +11,8 @@ import time
 
 from settings import INFO, FILE_ADDRESS
 
+logger = None
+
 """INITIALIZATION INFORMATION"""
 
 
@@ -40,24 +42,37 @@ def main_error_log(entry):
 
 """LOGGER SETUP"""
 
-# Set up the logger. By default only display INFO or higher levels.
-log_format = "%(levelname)s: %(asctime)s - [Artemis] v{} %(message)s"
-logformatter = log_format.format(INFO.version_number)
-logging.basicConfig(format=logformatter, level=logging.INFO)
 
-# Set the logging time to UTC.
-logging.Formatter.converter = time.gmtime
-logger = logging.getLogger(__name__)
+def start_logger(file_path=FILE_ADDRESS.logs):
+    """The main logging system used by the bot. Allows for separate
+    file paths to be passed to it.
+    :param file_path: Expressed in terms of FILE_ADDRESS.xxx,
+                      where xxx is the file name.
+    :return: Nothing.
+    """
 
-# Define the logging handler (the file to write to.)
-# By default only log INFO level messages or higher.
-handler = logging.FileHandler(FILE_ADDRESS.logs, "a", "utf-8")
-handler.setLevel(logging.INFO)
+    global logger
 
-# Set the time format in the logging handler.
-d = "%Y-%m-%dT%H:%M:%SZ"
-handler.setFormatter(logging.Formatter(logformatter, datefmt=d))
-logger.addHandler(handler)
+    # Set up the logger. By default only display INFO or higher levels.
+    log_format = "%(levelname)s: %(asctime)s - [Artemis] v{} %(message)s"
+    logformatter = log_format.format(INFO.version_number)
+    logging.basicConfig(format=logformatter, level=logging.INFO)
+
+    # Set the logging time to UTC.
+    logging.Formatter.converter = time.gmtime
+    logger = logging.getLogger(__name__)
+
+    # Define the logging handler (the file to write to.)
+    # By default only log INFO level messages or higher.
+    handler = logging.FileHandler(file_path, "a", "utf-8")
+    handler.setLevel(logging.INFO)
+
+    # Set the time format in the logging handler.
+    d = "%Y-%m-%dT%H:%M:%SZ"
+    handler.setFormatter(logging.Formatter(logformatter, datefmt=d))
+    logger.addHandler(handler)
+
+    return logger
 
 
 """OTHER FUNCTIONS"""
@@ -142,3 +157,6 @@ def flair_template_checker(input_text):
         return True
     else:
         return False
+
+
+start_logger()
