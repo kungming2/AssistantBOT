@@ -72,6 +72,11 @@ def stream_query_access(query_string, return_pushshift_format=True):
             query_object[key] = main_value
     query = SimpleNamespace(**query_object)
 
+    # Reject timeframes earlier than 2021-06-01, since there will not
+    # be any stream data for before that time.
+    if query.before < 1622505600:
+        return {}
+
     # `aggs` can serve as the main operator telling us what kind of
     # query we wanna run.
     query_type = query.aggs
@@ -135,14 +140,19 @@ def stream_most_common(query_field, master_dictionary):
     :param master_dictionary: A dictionary from the above function
                               `stream_database_fetcher` containing
                               post objects to iterate over.
-    :return:
+    :return: A Counter object. e.g. `Counter({False: 304, True: 135})`
     """
     operating_list = []
 
     # Iterate over the dictionary and add the values we're looking for
     # to the operating list.
     for item in master_dictionary.values():
-        dict_value = getattr(item, query_field)
+        try:
+            dict_value = getattr(item, query_field)
+        except AttributeError:
+            # This item does not have the attribute we're looking for.
+            # Skip it.
+            continue
         # If looking for dates in UTC, we convert the number to the
         # start of that day in UNIX time for standardization.
         if query_field == "created_utc":
