@@ -1482,11 +1482,7 @@ def subreddit_pushshift_time_authors_retriever(subreddit_name, start_time, end_t
             else:
                 error_message = "\n\n**Top Commenters**\n\n"
 
-            error_message += (
-                "* There was an issue retrieving this information from Pushshift "
-                "(see r/Pushshift). Artemis will attempt to re-access the data "
-                "at the next statistics update."
-            )
+            error_message += WIKIPAGE_PS_ERROR.strip()
             return error_message
 
         returned_authors = retrieved_data["aggs"]["author"]
@@ -1608,11 +1604,7 @@ def subreddit_pushshift_activity_retriever(subreddit_name, start_time, end_time,
         # string for inclusion.
         if "aggs" not in retrieved_data:
             error_message = "\n\n**{}s Activity**\n\n".format(search_type.title())
-            error_message += (
-                "* There was an issue retrieving this information from "
-                "Pushshift (see r/Pushshift). Artemis will attempt to re-access the "
-                "data at the next statistics update."
-            )
+            error_message += WIKIPAGE_PS_ERROR.strip()
             return error_message
 
         returned_days = retrieved_data["aggs"]["created_utc"]
@@ -1682,6 +1674,68 @@ def subreddit_pushshift_activity_collater(input_dictionary, search_type):
         body = header + "\n".join(lines_to_post) + average_line
     else:
         body = header + unavailable
+
+    return body
+
+
+def subreddit_stream_post_information(subreddit_name, start_time, end_time):
+    """This function looks at Stream data and gathers some supplementary
+    "aggregation" information on the kinds of posts.
+
+    :param subreddit_name: The community we are looking for.
+    :param start_time: We want to find posts *after* this time.
+    :param end_time: We want to find posts *before* this time.
+    :return: A Markdown list with a header and bulleted list for each
+             requested attribute.
+    """
+    attribute_dictionary = {}
+    formatted_lines = []
+    specific_month = start_time.rsplit("-", 1)[0]
+    current_month = timekeeping.month_convert_to_string(time.time())
+    start_time = timekeeping.convert_to_unix(start_time)
+    end_time = timekeeping.convert_to_unix(end_time)
+
+    # Reject timeframes earlier than 2021-06-01, since there will not
+    # be any stream data for before that time.
+    if start_time < 1622505600:
+        return None
+
+    # Conduct the queries on the Stream database. We use a variation of
+    # the Pushshift syntax for compatibility.
+    for query in SETTINGS.stream_include_attributes:
+        # Check first to see if we have local data.
+        query_data = database.activity_retrieve(subreddit_name, specific_month, query)
+
+        # If no results, get data from the Stream database.
+        if query_data is None:
+            logger.debug(f"Stream Post Information: Conducting Stream query for `{query}`.")
+            search_query = "/search/submission/?subreddit={}&after={}&before={}&aggs={}"
+            search_query = search_query.format(subreddit_name, start_time, end_time, query)
+            results = stream_query_access(search_query, False)
+            attribute_dictionary[query] = results
+
+            # Write to the database if we are not in the current month.
+            if specific_month != current_month:
+                database.activity_insert(subreddit_name, specific_month, query, dict(results))
+        else:
+            # We have local data. Load it from the database.
+            logger.debug(f"Stream Post Information: Loading `{query}` data from database.")
+            attribute_dictionary[query] = query_data
+
+    # Format the results into Markdown lines.
+    for query in SETTINGS.stream_include_attributes:
+        query_data = attribute_dictionary[query]
+        # For now, we only want True/False binary query data.
+        if len(query_data) <= 2:
+            total_amount = sum(query_data.values())
+            entry_line = ("* `{}` posts: {}/{} "
+                          "({:.2%})".format(query, query_data[True], total_amount,
+                                            query_data[True]/total_amount))
+            formatted_lines.append(entry_line)
+
+    # Pull everything together.
+    header = "\n\n#### Post Types\n\n{}\n"
+    body = header.format('\n'.join(formatted_lines))
 
     return body
 
@@ -2049,6 +2103,14 @@ def subreddit_statistics_retriever(subreddit_name):
         top_posts_data = subreddit_top_collater(subreddit_name, entry)
         if top_posts_data is not None:
             supplementary_data += top_posts_data
+
+        # Next, if the time frame is correct (after 2021-06), gather
+        # post type data from Stream and incorporate it.
+        # The companion function will return `None` if the timeframe
+        # will not return any data.
+        post_type_data = subreddit_stream_post_information(subreddit_name, first_day, last_day)
+        if post_type_data:
+            supplementary_data += post_type_data
 
         # Pull the single month entry together and add it to the list.
         month_body = month_header + supplementary_data
