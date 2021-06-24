@@ -1102,7 +1102,7 @@ def cleanup():
     # If there are more lines than what we want to keep, truncate the
     # entire file to our limit.
     if len(lines_entries) > lines_to_keep:
-        lines_entries = lines_entries[(-1 * lines_to_keep):]
+        lines_entries = lines_entries[(-1 * lines_to_keep) :]
         with open(FILE_ADDRESS.logs, "w", encoding="utf-8") as f:
             f.write("\n".join(lines_entries))
         logger.info("Cleanup: Last {:,} log entries kept.".format(lines_to_keep))
