@@ -1,10 +1,16 @@
+# -----
+# These are configurable settings for Artemis.
+# This settings file is read by `settings.py`.
+# -----
+# Which subreddit's wiki to get configuration information from.
+wiki: translatorBOT
 # Number of seconds Artemis waits in between isochronisms.
 wait: 30
 # Number of isochronisms to cycle before updating post frequency.
 post_frequency_cycles: 50
 # Number of chunks to split flair enforced subreddits into in order to
 # retrieve their submissions.
-num_chunks: 4
+num_chunks: 8
 # We don't want to log common connection errors.
 conn_errors:
     - 500 HTTP
@@ -63,7 +69,7 @@ lines_to_keep_divider: 2
 updated_to_keep_divider: 5
 operations_to_keep_multiplier: 5
 # Number of posts to get when pulling submissions.
-max_get_posts: 700
+max_get_posts: 800
 min_get_posts: 175
 # Number of old posts as a limit with pulling posts for recording at
 # the end of a day.
@@ -155,3 +161,29 @@ milestones:
     - 20000000
     - 25000000
     - 30000000
+# A list of saved post attributes, in addition to author and
+# subreddit. These are additional ones for Artemis Stream.
+stream_attributes:
+    - author_flair_text
+    - domain
+    - id
+    - is_self
+    - is_video
+    - link_flair_css_class
+    - link_flair_template_id
+    - link_flair_text
+    - over_18
+    - spoiler
+    - subreddit_subscribers
+    - title
+# Attributes we want to include on the stats page.
+stream_include_attributes:
+    - is_self
+    - over_18
+    - spoiler
+# The amount to pull for each chunk in Stream.
+stream_pull_amount: 200
+# The number of days' worth of posts to keep in the Stream database.
+stream_days_kept: 60
+# The number of days' worth of posts that the writer routine checks.
+stream_post_writer_days: 1
