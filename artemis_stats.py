@@ -1728,9 +1728,12 @@ def subreddit_stream_post_information(subreddit_name, start_time, end_time):
         # For now, we only want True/False binary query data.
         if len(query_data) <= 2:
             total_amount = sum(query_data.values())
-            entry_line = ("* `{}` posts: {}/{} "
-                          "({:.2%})".format(query, query_data[True], total_amount,
-                                            query_data[True]/total_amount))
+            try:
+                percentage = "{:.2%}".format(query_data[True]/total_amount)
+            except ZeroDivisionError:
+                percentage = "N/A"
+            entry_line = ("* `{}` posts: {}/{} ({})".format(query, query_data[True], total_amount,
+                                                            percentage))
             formatted_lines.append(entry_line)
 
     # Pull everything together.
